@@ -37,13 +37,15 @@ Track, reserve, and deploy microcontrollers, sensors, and actuators from JIIT's 
 
 ## 📌 Version History
 
-| Version | Status | Highlights |
-|---------|--------|-----------|
+| Version / Tag | Status | Highlights |
+|---------------|--------|-----------|
 | **v1.0.0** | ✅ Released | Frontend-only prototype. Vite + Three.js + TypeScript with a hardcoded sample inventory catalog. No persistence, no backend. |
 | **v1.1.0** | ✅ Released | Backend foundation. Node.js/Express + Supabase REST API; JWT auth (`register`/`login`/`profile`); admin-gated inventory CRUD; borrow/return flows with `borrowed_at`/`returned_at`; dashboard stats + audit log. Frontend wired to the live API. |
 | **v1.2.1** | ✅ Released | Email automation. Nodemailer SMTP (Gmail App Password); borrow/return confirmation receipts; context-rich borrow email (remaining stock, current-holder summary, 5-day due-date notice); `node-cron` reminder scheduler (due-today / overdue); `due_date` migration; full test suite (41 tests). |
+| **v2.5** | 🚀 Active Tag | Major UI/UX overhaul. 6 interactive visual themes (Cyber Neon, Matrix Green, Midnight Blue, Clean Light, Cherry Blossom, Avengers Assemble), dynamic multi-role member approval workflows, interactive 2D front gridlines, real-time search & categorization. |
+| **v2.5 Patches** | 🛠️ Latest Patch | • **Out of Stock Stat**: Dynamic counter for components with 0 available quantity (`item.quantity - borrowedSum <= 0`).<br>• **Status-Colored Notifications**: Standardized color indicators for BORROW (Blue), RETURNED (Green), OVERDUE (Red), LOW STOCK (Yellow), ADD/NEW (Purple), and SYSTEM (Neutral Grey).<br>• **Photorealistic Theme Backgrounds**: Cinematic scenic backdrops for Cherry Blossom (Japanese garden park), Cyber Neon (cyber wireframe skyline), Matrix Green (dark data mainframe), Midnight Blue (deep cosmos astrophotography), and Clean Light (minimal architectural studio) with contrast overlay preservation.<br>• **Avengers Assemble Shield**: Crisp black boundaries and soft luminous background aura. |
 
-> The current release is **v0.0.2**. The root `package.json` tracks the frontend package as `0.0.0`; the versioning table above describes the *project* release milestones.
+> The active project release tag is **`v2.5`**. Ongoing maintenance and features are applied as **`v2.5 Patches`**.
 
 ---
 

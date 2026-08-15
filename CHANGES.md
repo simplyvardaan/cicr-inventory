@@ -64,11 +64,21 @@ A large frontend pass (~2,500 line diff across `index.html`, `src/main.ts`, `src
 
 **`5aa4745`** merges this reminder work into `main` (PR #5, branch `deployment-failure`).
 
+## 7. Version 2.5 Release & UI Refinements (Tag: `v2.5`)
+- Added 6 high-tech visual themes: **Cyber Neon**, **Matrix Green**, **Midnight Blue**, **Clean Light**, **Cherry Blossom**, and **Avengers Assemble**.
+- Integrated interactive 2D front gridlines (`z-index: 10`, `pointer-events: none`) with dynamic cursor spotlight tracking.
+- Upgraded Avengers theme with luminous Stark Arc Reactor and Captain America Shield with bold black ring and star borders.
+
+## 8. Version 2.5 Patches
+- **Out of Stock Stat Calculation**: Dynamic counter for components with 0 available quantity (`item.quantity - borrowedSum <= 0`).
+- **Status Color-Coded Activity Notifications**: Standardized color indicators for BORROW (Blue), RETURNED (Green), OVERDUE (Red), LOW STOCK (Yellow), ADD/NEW (Purple), and SYSTEM (Neutral Grey).
+- **Realistic Theme Backgrounds**: Cinematic scenic wallpapers for Cherry Blossom (Japanese garden park), Cyber Neon (wireframe skyline), Matrix Green (dark data mainframe), Midnight Blue (deep space cosmos), and Clean Light (minimal architectural studio).
+
 ---
 
 ## Net effect
 
-Together, these changes move CICR VAULT from a direct "borrow now" model to a **request → admin-approval → borrow** workflow, add **automated due-date reminder emails**, introduce **live capacity/scale analytics** for the backend, and give the frontend a **theme switcher and mobile-friendly navigation**, backed by a substantially expanded backend test suite.
+Together, these changes move CICR VAULT from a direct "borrow now" model to a **request → admin-approval → borrow** workflow, add **automated due-date reminder emails**, introduce **live capacity/scale analytics** for the backend, provide **6 immersive realistic themes with interactive front gridlines**, dynamic **Out of Stock metrics**, and status-colored transaction logs, backed by a substantially expanded backend test suite.
 
 ### Suggested next steps if you're picking this up
 - Run the new migrations (`001_add_due_date_to_borrow_records.sql`, `002_add_reminder_sent_at_to_borrow_records.sql`) against your database.
