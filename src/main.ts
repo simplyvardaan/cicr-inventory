@@ -288,7 +288,7 @@ class Background3D {
 
     private init() {
         this.scene = new THREE.Scene();
-        this.scene.fog = new THREE.FogExp2(0x0d0d0c, 0.015);
+        this.scene.fog = new THREE.FogExp2(0x151b13, 0.015);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.set(0, 4, 18);
@@ -309,7 +309,7 @@ class Background3D {
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         this.scene.add(ambientLight);
 
-        const pointLight = new THREE.PointLight(0xf5f5f2, 1.2, 100);
+        const pointLight = new THREE.PointLight(0xe9ddc6, 1.2, 100);
         pointLight.position.set(0, 10, -20);
         this.scene.add(pointLight);
 
@@ -320,6 +320,13 @@ class Background3D {
 
     public updateThemeColors(theme: string) {
         this.currentTheme = theme;
+        if (this.scene && this.scene.fog) {
+            if (theme === 'light') {
+                this.scene.fog.color.setHex(0xe8ebf5);
+            } else {
+                this.scene.fog.color.setHex(0x151b13);
+            }
+        }
         this.setParticleColorsForTheme(theme);
     }
 
@@ -333,9 +340,9 @@ class Background3D {
             c1 = new THREE.Color(0x9c78ed); // Robo Lab Purple
             c2 = new THREE.Color(0xf5b8eb); // Robo Lab Soft Pink
         } else {
-            // Default Midnight Mono
-            c1 = new THREE.Color(0x737373);
-            c2 = new THREE.Color(0xf5f5f2);
+            // Default Midnight Mono (Muted Sage & Warm Cream)
+            c1 = new THREE.Color(0x758071);
+            c2 = new THREE.Color(0xe9ddc6);
         }
 
         for (let i = 0; i < count; i++) {

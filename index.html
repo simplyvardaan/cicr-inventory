@@ -496,7 +496,7 @@
                     <!-- Greeting card -->
                     <div class="dashboard-greeting-card glass">
                         <div class="card-greetings-left">
-                            <span class="dashboard-subtitle-accent" id="dashboard-subtitle-role">ADMIN DASHBOARD</span>
+                            <span class="dashboard-subtitle-accent" id="dashboard-subtitle-role">MEMBER DASHBOARD</span>
                             <h1 class="dashboard-greeting-title" id="dashboard-greeting">Good evening, Operator</h1>
                         </div>
 
@@ -521,6 +521,7 @@
                                     actuators, and hardware components.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">Explore Inventory</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
@@ -538,11 +539,13 @@
                                     student usage permissions.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">View Active Logs</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
 
                         <div class="dash-card card-yellow" id="dash-card-hardware-logs"
+                            style="display: none !important;"
                             onclick="window.switchSection && window.switchSection('hardware-logs-view')">
                             <div class="dash-card-header">
                                 <div class="dash-card-icon-wrapper">
@@ -555,6 +558,7 @@
                                 <p class="dash-card-desc" id="dash-card-hw-desc">Track your pending approval requests, active component checkouts, and return verification history.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">View Activity Logs</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
@@ -573,6 +577,7 @@
                                     Robotics Vault.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">View Developers</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
@@ -583,7 +588,7 @@
                                 <div class="dash-card-icon-wrapper">
                                     <i data-lucide="user-check"></i>
                                 </div>
-                                <span class="dash-card-tag">OPERATOR HUD</span>
+                                <span class="dash-card-tag">OPERATOR HUB</span>
                             </div>
                             <div class="dash-card-body">
                                 <h3 class="dash-card-title">My Profile</h3>
@@ -591,6 +596,7 @@
                                     checkouts, and security controls.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">Open Profile</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
@@ -608,6 +614,7 @@
                                     and configure member roles.</p>
                             </div>
                             <div class="dash-card-footer">
+                                <span class="dash-card-action-text">Manage Members</span>
                                 <i data-lucide="arrow-right"></i>
                             </div>
                         </div>
