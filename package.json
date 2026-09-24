@@ -15,9 +15,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@types/three": "^0.185.4",
+    "@types/three": "^0.186.0",
     "lucide": "^1.29.0",
-    "three": "^0.185.1",
+    "three": "^0.186.0",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   },
