@@ -406,7 +406,10 @@ export const returnItem = async (req: AuthRequest, res: Response) => {
       });
 
       if (!result.success) {
-        return res.status(400).json({ status: 'error', message: result.message || 'Failed to submit return request.' });
+        // M-8: a non-owner member probing another member's loan ID gets 403,
+        // matching POST /api/borrow/return-request.
+        const isForbidden = result.message?.includes('Access Denied');
+        return res.status(isForbidden ? 403 : 400).json({ status: 'error', message: result.message || 'Failed to submit return request.' });
       }
 
       return res.status(202).json({
@@ -580,7 +583,27 @@ export const getBorrowHistory = async (req: AuthRequest, res: Response) => {
     const userRole = req.user?.role;
     const force = req.query.force === 'true';
 
-    const cacheKey = `cicr:cache:borrow:history:${userRole === 'ADMIN' ? 'all' : (userId || 'anon')}`;
+    // M-8: server-side status selection for the Member Active Loans / return
+    // boundary. Only these exact statuses are accepted; anything else is
+    // rejected so a hostile value can never reshape the query.
+    const HISTORY_STATUS_ALLOWLIST = ['BORROWED', 'RETURN_REQUESTED', 'RETURNED', 'PENDING'] as const;
+    let statusFilter: string[] | null = null;
+    if (req.query.status !== undefined) {
+      const requested = String(req.query.status)
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      const invalid = requested.filter((s) => !(HISTORY_STATUS_ALLOWLIST as readonly string[]).includes(s));
+      if (requested.length === 0 || invalid.length > 0) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid status filter. Allowed: BORROWED, RETURN_REQUESTED, RETURNED, PENDING.'
+        });
+      }
+      statusFilter = [...new Set(requested)];
+    }
+
+    const cacheKey = `cicr:cache:borrow:history:${userRole === 'ADMIN' ? 'all' : (userId || 'anon')}:${statusFilter ? [...statusFilter].sort().join(',') : 'all-statuses'}`;
     if (!force) {
       const cached = await cacheGetJSON<{ status: string; count: number; data: any[] }>(cacheKey);
       if (cached) {
@@ -597,6 +620,11 @@ export const getBorrowHistory = async (req: AuthRequest, res: Response) => {
     if (userRole !== 'ADMIN') {
       const userRoll = req.user?.roll_number;
       const userName = req.user?.name;
+      // M-8: fail closed. Without any usable owner identifier the query
+      // below would be unconstrained and return every user's loans.
+      if (!userId && !userRoll && !userName) {
+        return res.status(200).json({ status: 'success', count: 0, data: [] });
+      }
       if (userId && userRoll) {
         query = query.or(`user_id.eq.${escapeOrSegment(userId)},roll_number.eq.${escapeOrSegment(userRoll)}`);
       } else if (userId) {
@@ -606,6 +634,14 @@ export const getBorrowHistory = async (req: AuthRequest, res: Response) => {
       } else if (userName) {
         query = query.eq('borrower_name', userName);
       }
+    }
+
+    // M-8: enforce the active-loan selection in the database query so the
+    // member return system never depends on frontend-only filtering.
+    if (statusFilter) {
+      query = statusFilter.length === 1
+        ? query.eq('status', statusFilter[0])
+        : query.in('status', statusFilter);
     }
 
     const { data: records, error } = await query;

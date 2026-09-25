@@ -414,21 +414,12 @@ export const createReturnRequest = async (payload: {
     return { success: false, message: 'This item has already been marked as returned.' };
   }
 
-  if (record.status === 'RETURN_REQUESTED') {
-    const existing = Object.values(requestsState).find(
-      r => r && r.type === 'RETURN' && (r.borrowId === record.id || r.id === record.id) && r.status === 'PENDING'
-    );
-    return { success: true, request: existing, message: 'A return verification request is already pending for this loan.' };
-  }
-
-  const existingPendingReturn = Object.values(requestsState).find(
-    r => r && r.type === 'RETURN' && (r.borrowId === record.id || r.id === record.id) && r.status === 'PENDING'
-  );
-  if (existingPendingReturn) {
-    return { success: true, request: existingPendingReturn, message: 'A return verification request is already pending for this loan.' };
-  }
-
-  // Enforce strict ownership: only the user who issued/borrowed this item can return it, UNLESS the requester is an ADMIN
+  // M-8: enforce strict ownership BEFORE the RETURN_REQUESTED branches
+  // below. Those branches return the pending return request object, so
+  // checking ownership first closes an IDOR where a member probing an
+  // arbitrary borrowId could pull someone else's active loan details.
+  // Only the user who issued/borrowed this item can return it, UNLESS the
+  // requester is an ADMIN.
   const isOwner = (() => {
     if (payload.userRole === 'ADMIN') {
       return true;
@@ -470,6 +461,20 @@ export const createReturnRequest = async (payload: {
       success: false,
       message: 'Access Denied: You can only return items that you personally borrowed.'
     };
+  }
+
+  if (record.status === 'RETURN_REQUESTED') {
+    const existing = Object.values(requestsState).find(
+      r => r && r.type === 'RETURN' && (r.borrowId === record.id || r.id === record.id) && r.status === 'PENDING'
+    );
+    return { success: true, request: existing, message: 'A return verification request is already pending for this loan.' };
+  }
+
+  const existingPendingReturn = Object.values(requestsState).find(
+    r => r && r.type === 'RETURN' && (r.borrowId === record.id || r.id === record.id) && r.status === 'PENDING'
+  );
+  if (existingPendingReturn) {
+    return { success: true, request: existingPendingReturn, message: 'A return verification request is already pending for this loan.' };
   }
 
   const numToReturn = Math.max(1, Math.min(Number(returnQuantity) || 1, record.quantity));
