@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@types/three": "^0.185.4",
-    "lucide": "^1.29.0",
+    "lucide": "^1.47.0",
     "three": "^0.185.1",
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
