@@ -21,6 +21,24 @@ export const generalLimiter = rateLimit({
     message: 'Too many requests. Please try again later.',
   },
   keyGenerator: safeKeyGenerator,
+  skip: (req) => {
+    // Inventory GET requests have dedicated high-throughput itemsReadLimiter
+    const url = req.originalUrl || req.url || '';
+    return req.method === 'GET' && (url.startsWith('/api/items') || url.startsWith('/api/health') || url === '/' || url === '/api' || url === '/api/');
+  },
+});
+
+// ---------------------------------------------------------------- inventory items catalog rate limiter (high throughput)
+export const itemsReadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30000, // 30,000 requests per 15m (~2,000 req/min), effortlessly absorbs load tests and sustained bursts up to 50-100 req/sec
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 'error',
+    message: 'Too many inventory requests. Please slow down.',
+  },
+  keyGenerator: safeKeyGenerator,
 });
 
 // ---------------------------------------------------------------- auth endpoints

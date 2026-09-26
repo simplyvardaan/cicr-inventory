@@ -92,6 +92,20 @@ interface SupabaseQueryOptions {
   single?: boolean;
 }
 
+const SUPABASE_QUERY_TIMEOUT_MS = 8000;
+
+function withTimeout<T = any>(promise: PromiseLike<T> | Promise<T>, timeoutMs = SUPABASE_QUERY_TIMEOUT_MS): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Supabase query timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise), timeoutPromise]).finally(() => {
+    clearTimeout(timer);
+  });
+}
+
 /**
  * Execute a query via Supabase PostgREST.
  * Supports SELECT, INSERT, UPDATE, DELETE with filters, ordering, limits.
@@ -168,17 +182,17 @@ export async function supabaseQuery(
 
         // Single result
         if (options.single) {
-          const { data, error, count } = await query.single();
-          return { data, error, count: count ?? undefined };
+          const res: any = await withTimeout(query.single());
+          return { data: res?.data ?? null, error: res?.error ?? null, count: res?.count ?? undefined };
         }
 
-        const { data, error, count } = await query;
-        return { data, error, count: count ?? undefined };
+        const res: any = await withTimeout(query);
+        return { data: res?.data ?? null, error: res?.error ?? null, count: res?.count ?? undefined };
       }
 
       case 'insert': {
-        const { data, error } = await query.insert(options.data || []).select();
-        return { data, error };
+        const res: any = await withTimeout(query.insert(options.data || []).select());
+        return { data: res?.data ?? null, error: res?.error ?? null };
       }
 
       case 'update': {
@@ -217,8 +231,8 @@ export async function supabaseQuery(
             }
           }
         }
-        const { data, error } = await q.select();
-        return { data, error };
+        const res: any = await withTimeout(q.select());
+        return { data: res?.data ?? null, error: res?.error ?? null };
       }
 
       case 'delete': {
@@ -257,8 +271,8 @@ export async function supabaseQuery(
             }
           }
         }
-        const { data, error } = await q.select();
-        return { data, error };
+        const res: any = await withTimeout(q.select());
+        return { data: res?.data ?? null, error: res?.error ?? null };
       }
 
       default:

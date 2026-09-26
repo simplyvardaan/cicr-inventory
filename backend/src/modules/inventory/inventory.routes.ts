@@ -8,13 +8,14 @@ import {
   deleteItem
 } from './inventory.controller';
 import { authenticateToken, requireAdmin } from '../../middleware/auth.middleware';
+import { itemsReadLimiter } from '../../middleware/rateLimit';
 
 const router = Router();
 
-// Public / Authenticated User Routes
-router.get('/', getItems);
-router.get('/categories', getCategories);
-router.get('/:id', getItemById);
+// Public / Authenticated User Routes (High-Throughput Protected)
+router.get('/', itemsReadLimiter, getItems);
+router.get('/categories', itemsReadLimiter, getCategories);
+router.get('/:id', itemsReadLimiter, getItemById);
 
 // Admin Only Routes
 router.post('/', authenticateToken, requireAdmin, createItem);

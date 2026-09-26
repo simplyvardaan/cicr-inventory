@@ -16,6 +16,9 @@ export const supabase = dbWrite;
 
 const app = express();
 
+// Trust reverse proxy (Render, Cloudflare, etc.) so req.ip and express-rate-limit read real client IP
+app.set('trust proxy', 1);
+
 // Cybersecurity Hardening: Suppress Express fingerprinting
 app.disable('x-powered-by');
 

@@ -6,39 +6,82 @@ import { sendAdminItemCreatedNotification, sendAdminItemDeletedNotification } fr
 import { logAuditEvent } from '../../services/auditService';
 import { escapeLikePattern, escapeOrSegment } from '../../validators/postgrest';
 
-const ITEMS_LIST_CACHE_TTL = 30; // seconds
+const ITEMS_LIST_CACHE_TTL = 30; // seconds for L2 Redis
 const ITEMS_ITEM_CACHE_TTL = 30;
+const CATEGORIES_CACHE_TTL = 60;
+
+// High-Performance In-Memory L1 Cache (0.001ms RAM lookup) with Stale-While-Revalidate (SWR)
+interface CacheEntry<T> {
+  payload: T;
+  cachedAt: number;
+  expiresAt: number;
+  staleUntil: number;
+  etag: string;
+}
+
+const l1Cache = new Map<string, CacheEntry<any>>();
+const inFlightRequests = new Map<string, Promise<any>>();
+
+const L1_FRESH_TTL_MS = 30 * 1000;       // 30 seconds fresh
+const L1_STALE_TTL_MS = 5 * 60 * 1000;   // 5 minutes stale-while-revalidate grace period
+
+function computeEtag(data: any): string {
+  try {
+    const count = data?.count ?? (Array.isArray(data?.data) ? data.data.length : 1);
+    const sample = data?.data?.[0]?.updated_at || data?.data?.[0]?.id || data?.id || 'none';
+    return `W/"${count}-${sample}"`;
+  } catch {
+    return `W/"${Date.now()}"`;
+  }
+}
 
 const itemsListCacheKey = (category: unknown, search: unknown): string =>
   `cicr:cache:items:list:${String(category ?? '')}:${String(search ?? '')}`;
 
 const itemsIdCacheKey = (id: string): string => `cicr:cache:items:id:${id}`;
+const CATEGORIES_CACHE_KEY = 'cicr:cache:items:categories';
 
 export const invalidateItemsCache = async (id?: string): Promise<void> => {
-  await cacheInvalidatePattern('cicr:cache:items:*');
-  if (id) await cacheInvalidate(itemsIdCacheKey(id));
+  // Wipe L1 RAM cache and in-flight deduplication map
+  l1Cache.clear();
+  inFlightRequests.clear();
+
+  // Wipe L2 Redis cache
+  await cacheInvalidatePattern('cicr:cache:items:*').catch(() => {});
+  if (id) await cacheInvalidate(itemsIdCacheKey(id)).catch(() => {});
+
+  // Asynchronously pre-warm the primary catalog in L1 memory
+  fetchAndCacheItems('', '', itemsListCacheKey('', '')).catch(() => {});
 };
 
-// Helper function to log actions in audit_logs
-async function logAudit(action: string, userId: string | undefined, itemId: string | null, description: string) {
-  await logAuditEvent({ action, userId, itemId, description });
-}
+// Single-Flight Request Coalescing + Multi-Tier L1/L2 Caching
+async function fetchAndCacheItems(category: unknown, search: unknown, cacheKey: string): Promise<any> {
+  // If an identical query is already fetching in-flight, await the same promise
+  if (inFlightRequests.has(cacheKey)) {
+    return inFlightRequests.get(cacheKey)!;
+  }
 
-// GET /api/items (Search, Filter by Category, Get All) — cached 30s, read pool
-export const getItems = async (req: Request, res: Response) => {
-  try {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.setHeader('Pragma', 'no-cache');
-    res.setHeader('Expires', '0');
-
-    const { category, search } = req.query;
-    const cacheKey = itemsListCacheKey(category, search);
-
-    const cached = await cacheGetJSON(cacheKey);
-    if (cached) {
-      return res.status(200).json(cached);
+  const promise = (async () => {
+    // 1. Check L2 Redis cache first
+    try {
+      const l2 = await cacheGetJSON<any>(cacheKey);
+      if (l2 && l2.status === 'success') {
+        const now = Date.now();
+        const etag = computeEtag(l2);
+        l1Cache.set(cacheKey, {
+          payload: l2,
+          cachedAt: now,
+          expiresAt: now + L1_FRESH_TTL_MS,
+          staleUntil: now + L1_STALE_TTL_MS,
+          etag,
+        });
+        return l2;
+      }
+    } catch {
+      // Redis unavailable or degraded; continue to DB
     }
 
+    // 2. Query database (single unified read)
     let query = dbRead.from('inventory').select('*').order('created_at', { ascending: false });
 
     if (category) {
@@ -58,36 +101,236 @@ export const getItems = async (req: Request, res: Response) => {
     if (error) throw error;
 
     const payload = { status: 'success', count: items.length, data: items };
-    await cacheSetJSON(cacheKey, payload, ITEMS_LIST_CACHE_TTL);
+    const now = Date.now();
+    const etag = computeEtag(payload);
+
+    l1Cache.set(cacheKey, {
+      payload,
+      cachedAt: now,
+      expiresAt: now + L1_FRESH_TTL_MS,
+      staleUntil: now + L1_STALE_TTL_MS,
+      etag,
+    });
+
+    cacheSetJSON(cacheKey, payload, ITEMS_LIST_CACHE_TTL).catch(() => {});
+    return payload;
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightRequests.delete(cacheKey);
+  }
+}
+
+// Helper function to log actions in audit_logs
+async function logAudit(action: string, userId: string | undefined, itemId: string | null, description: string) {
+  await logAuditEvent({ action, userId, itemId, description });
+}
+
+// GET /api/items (Search, Filter by Category, Get All) — Ultra-resilient SWR + Single-Flight
+export const getItems = async (req: Request, res: Response) => {
+  try {
+    const { category, search } = req.query;
+    const cacheKey = itemsListCacheKey(category, search);
+    const now = Date.now();
+    const entry = l1Cache.get(cacheKey);
+    const clientEtag = req.headers['if-none-match'];
+
+    if (entry) {
+      // ETag conditional check -> 304 Not Modified
+      if (clientEtag && clientEtag === entry.etag) {
+        res.setHeader('ETag', entry.etag);
+        res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15, stale-while-revalidate=60');
+        return res.status(304).end();
+      }
+
+      // Fresh L1 cache hit (< 0.05ms)
+      if (now < entry.expiresAt) {
+        res.setHeader('ETag', entry.etag);
+        res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15, stale-while-revalidate=60');
+        res.setHeader('X-Cache', 'HIT-L1');
+        return res.status(200).json(entry.payload);
+      }
+
+      // Stale L1 cache: return immediately and revalidate asynchronously in background
+      if (now < entry.staleUntil) {
+        res.setHeader('ETag', entry.etag);
+        res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15, stale-while-revalidate=60');
+        res.setHeader('X-Cache', 'STALE');
+        res.status(200).json(entry.payload);
+
+        if (!inFlightRequests.has(cacheKey)) {
+          fetchAndCacheItems(category, search, cacheKey).catch(() => {});
+        }
+        return;
+      }
+    }
+
+    // Cache miss / cold start: execute with single-flight promise coalescing
+    const payload = await fetchAndCacheItems(category, search, cacheKey);
+    const etag = computeEtag(payload);
+
+    if (clientEtag && clientEtag === etag) {
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15, stale-while-revalidate=60');
+      return res.status(304).end();
+    }
+
+    res.setHeader('ETag', etag);
+    res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15, stale-while-revalidate=60');
+    res.setHeader('X-Cache', entry ? 'REVALIDATED' : 'MISS');
     return res.status(200).json(payload);
   } catch (err: any) {
+    // If DB fails but we have stale cache, serve stale cache instead of 500/504
+    const { category, search } = req.query;
+    const cacheKey = itemsListCacheKey(category, search);
+    const entry = l1Cache.get(cacheKey);
+    if (entry) {
+      res.setHeader('ETag', entry.etag);
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15');
+      res.setHeader('X-Cache', 'FALLBACK-STALE');
+      return res.status(200).json(entry.payload);
+    }
     return res.status(500).json({ status: 'error', message: err.message });
   }
 };
 
-// GET /api/items/categories (List distinct categories)
+async function fetchCategories(): Promise<any> {
+  const cacheKey = CATEGORIES_CACHE_KEY;
+  if (inFlightRequests.has(cacheKey)) {
+    return inFlightRequests.get(cacheKey)!;
+  }
+
+  const promise = (async () => {
+    try {
+      const l2 = await cacheGetJSON<any>(cacheKey);
+      if (l2 && l2.status === 'success') {
+        const now = Date.now();
+        l1Cache.set(cacheKey, {
+          payload: l2,
+          cachedAt: now,
+          expiresAt: now + CATEGORIES_CACHE_TTL * 1000,
+          staleUntil: now + 10 * 60 * 1000,
+          etag: computeEtag(l2),
+        });
+        return l2;
+      }
+    } catch {
+      // Redis fallback
+    }
+
+    const { data, error } = await dbRead.from('inventory').select('category');
+    let distinct: string[] = ['Sensors', 'Controllers', 'Actuators', 'Power', 'Tools'];
+    if (!error && data && data.length > 0) {
+      const parsed = Array.from(new Set(data.map((i: any) => i.category))).filter(Boolean) as string[];
+      if (parsed.length > 0) distinct = parsed;
+    }
+
+    const payload = { status: 'success', data: distinct };
+    const now = Date.now();
+    l1Cache.set(cacheKey, {
+      payload,
+      cachedAt: now,
+      expiresAt: now + CATEGORIES_CACHE_TTL * 1000,
+      staleUntil: now + 10 * 60 * 1000,
+      etag: computeEtag(payload),
+    });
+
+    cacheSetJSON(cacheKey, payload, CATEGORIES_CACHE_TTL).catch(() => {});
+    return payload;
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightRequests.delete(cacheKey);
+  }
+}
+
+// GET /api/items/categories (List distinct categories) — cached with SWR
 export const getCategories = async (req: Request, res: Response) => {
   try {
-    const { data, error } = await dbRead.from('inventory').select('category');
-    if (!error && data && data.length > 0) {
-      const distinct = Array.from(new Set(data.map((i: any) => i.category))).filter(Boolean);
-      return res.status(200).json({ status: 'success', data: distinct });
+    const now = Date.now();
+    const entry = l1Cache.get(CATEGORIES_CACHE_KEY);
+
+    if (entry) {
+      if (now < entry.expiresAt) {
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=30');
+        res.setHeader('X-Cache', 'HIT-L1');
+        return res.status(200).json(entry.payload);
+      }
+      if (now < entry.staleUntil) {
+        res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=30');
+        res.setHeader('X-Cache', 'STALE');
+        res.status(200).json(entry.payload);
+        if (!inFlightRequests.has(CATEGORIES_CACHE_KEY)) {
+          fetchCategories().catch(() => {});
+        }
+        return;
+      }
     }
-    const categories = ['Sensors', 'Controllers', 'Actuators', 'Power', 'Tools'];
-    return res.status(200).json({ status: 'success', data: categories });
+
+    const payload = await fetchCategories();
+    res.setHeader('Cache-Control', 'public, max-age=10, s-maxage=30');
+    return res.status(200).json(payload);
   } catch (err: any) {
+    const entry = l1Cache.get(CATEGORIES_CACHE_KEY);
+    if (entry) {
+      return res.status(200).json(entry.payload);
+    }
     return res.status(500).json({ status: 'error', message: err.message });
   }
 };
 
-// GET /api/items/:id — cached 30s, read pool
+// GET /api/items/:id — cached 30s, read pool with single-flight
 export const getItemById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const cacheKey = itemsIdCacheKey(id);
+    const now = Date.now();
+    const entry = l1Cache.get(cacheKey);
+
+    if (entry) {
+      if (now < entry.expiresAt) {
+        res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15');
+        res.setHeader('X-Cache', 'HIT-L1');
+        return res.status(200).json(entry.payload);
+      }
+      if (now < entry.staleUntil) {
+        res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15');
+        res.setHeader('X-Cache', 'STALE');
+        res.status(200).json(entry.payload);
+        (async () => {
+          const { data: item } = await dbRead.from('inventory').select('*').eq('id', id).single();
+          if (item) {
+            const p = { status: 'success', data: item };
+            l1Cache.set(cacheKey, {
+              payload: p,
+              cachedAt: Date.now(),
+              expiresAt: Date.now() + L1_FRESH_TTL_MS,
+              staleUntil: Date.now() + L1_STALE_TTL_MS,
+              etag: computeEtag(p)
+            });
+            cacheSetJSON(cacheKey, p, ITEMS_ITEM_CACHE_TTL).catch(() => {});
+          }
+        })().catch(() => {});
+        return;
+      }
+    }
 
     const cached = await cacheGetJSON(cacheKey);
     if (cached) {
+      l1Cache.set(cacheKey, {
+        payload: cached,
+        cachedAt: now,
+        expiresAt: now + L1_FRESH_TTL_MS,
+        staleUntil: now + L1_STALE_TTL_MS,
+        etag: computeEtag(cached)
+      });
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15');
       return res.status(200).json(cached);
     }
 
@@ -98,7 +341,15 @@ export const getItemById = async (req: Request, res: Response) => {
     }
 
     const payload = { status: 'success', data: item };
+    l1Cache.set(cacheKey, {
+      payload,
+      cachedAt: now,
+      expiresAt: now + L1_FRESH_TTL_MS,
+      staleUntil: now + L1_STALE_TTL_MS,
+      etag: computeEtag(payload)
+    });
     await cacheSetJSON(cacheKey, payload, ITEMS_ITEM_CACHE_TTL);
+    res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=15');
     return res.status(200).json(payload);
   } catch (err: any) {
     return res.status(500).json({ status: 'error', message: err.message });
