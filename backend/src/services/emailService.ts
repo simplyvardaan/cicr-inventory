@@ -173,12 +173,10 @@ const formatSmtpError = (error: any): string => {
 // DKIM-signed RFC 2822 Message-ID to ensure zero spoofing/quarantine penalties.
 const generateMessageId = (): undefined => undefined;
 
-// Shared delivery headers for authentic system appearance
-const buildHeaders = (kind: string, priority: 'high' | 'normal' = 'normal') => ({
-  'X-CICR-Mailer': 'CICR-Inventory/v2.0-Core',
-  'X-Mailer-Type': kind,
-  'X-Priority': priority === 'high' ? '1 (Highest)' : '3 (Normal)',
-  'Importance': priority === 'high' ? 'High' : 'Normal',
+// Standard headers compliant with modern RFCs to prevent spam/phishing classification
+const buildHeaders = (_kind?: string, _priority?: 'high' | 'normal') => ({
+  'Auto-Submitted': 'auto-generated',
+  'X-Auto-Response-Suppress': 'OOF, AutoReply',
 });
 
 const logDelivery = (kind: string, info: any): void => {
@@ -2395,25 +2393,30 @@ export const sendUserWelcomeWithTempPasswordEmail = async (
             <td style="padding:6px 0;color:#64748b;font-family:'SFMono-Regular',Consolas,monospace;">ENROLLMENT NO:</td>
             <td style="padding:6px 0;color:#cbd5e1;font-family:'SFMono-Regular',Consolas,monospace;">${rollDisplay}</td>
           </tr>
+          ${context.batch ? `
+          <tr>
+            <td style="padding:6px 0;color:#64748b;font-family:'SFMono-Regular',Consolas,monospace;">BATCH / DEPT:</td>
+            <td style="padding:6px 0;color:#cbd5e1;font-family:'SFMono-Regular',Consolas,monospace;">${batchDisplay}</td>
+          </tr>` : ''}
         </table>
       </div>
 
       ${hasTempPassword ? `
       <div style="background:rgba(0, 240, 255, 0.05);border:1px solid rgba(0, 240, 255, 0.3);border-radius:6px;padding:18px;margin-bottom:18px;text-align:center;">
         <div style="font-size:11px;font-weight:700;letter-spacing:1.2px;color:#00f0ff;text-transform:uppercase;margin-bottom:8px;font-family:'SFMono-Regular',Consolas,monospace;">
-          // TEMPORARY ACCESS CREDENTIALS
+          // INITIAL ACCOUNT PASSCODE
         </div>
         <div style="font-family:'SFMono-Regular',Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#ffffff;background:#05070e;display:inline-block;padding:10px 24px;border-radius:4px;border:1px solid rgba(0, 240, 255, 0.4);box-shadow:0 0 15px rgba(0, 240, 255, 0.2);">
           ${context.tempPassword}
         </div>
         <div style="font-size:12px;color:#94a3b8;margin-top:10px;">
-          Use this temporary password along with your college email to sign in.
+          Use your college email and this passcode to access the student portal.
         </div>
       </div>
       ` : ''}
 
-      <div style="background:rgba(250,204,21,0.08);border-left:3px solid #facc15;padding:14px;border-radius:4px;font-size:12.5px;color:#e2e8f0;margin-top:14px;line-height:1.5;">
-        <strong style="color:#facc15;">Security Advisory:</strong> For your security, please log in to the CICR Robotics Vault and <strong>reset your password</strong> to a secure personal password of your choice immediately.
+      <div style="background:rgba(56, 189, 248, 0.06);border-left:3px solid #38bdf8;padding:14px;border-radius:4px;font-size:12.5px;color:#cbd5e1;margin-top:14px;line-height:1.5;">
+        <strong style="color:#38bdf8;">Account Management:</strong> You can customize your passcode anytime in your account settings after opening the portal.
       </div>
     `;
 
@@ -2421,37 +2424,38 @@ export const sendUserWelcomeWithTempPasswordEmail = async (
       from: getFromAddress(),
       replyTo: getReplyToAddress(),
       to: recipientEmail,
-      subject: `[CICR Vault] Welcome to CICR Inventory - Your Account & Credentials`,
+      subject: `Welcome to CICR - Student Account for ${context.userName}`,
       messageId: generateMessageId(),
-      headers: buildHeaders('user-welcome-credentials', 'high'),
-      priority: 'high' as const,
+      headers: buildHeaders('user-welcome-account', 'normal'),
+      priority: 'normal' as const,
       text: [
-        `CICR ROBOTICS VAULT // ACCOUNT PROVISIONED`,
+        `CICR ROBOTICS // STUDENT ACCOUNT READY`,
         `================================================`,
-        `Welcome ${context.userName},`,
+        `Hello ${context.userName},`,
         ``,
-        `Your account has been created on the CICR Robotics Inventory Vault.`,
+        `Your student member account has been registered for the CICR Robotics Inventory Portal.`,
         `Email: ${context.userEmail}`,
         `Enrollment No: ${rollDisplay}`,
         ...(hasTempPassword ? [
           ``,
-          `TEMPORARY PASSWORD: ${context.tempPassword}`,
-          `Please sign in using this temporary password.`
+          `INITIAL PASSCODE: ${context.tempPassword}`,
+          `Please use this initial passcode to access your account.`
         ] : []),
         ``,
-        `IMPORTANT: Please log in at ${portalUrl} and reset your temporary password immediately.`,
+        `Portal: ${portalUrl}`,
         ``,
-        `Regards,`,
-        `CICR Administration Team`
+        `Best regards,`,
+        `Centre for Innovation, Control & Robotics (CICR)`,
+        `Jaypee Institute of Information Technology, Sector 128`
       ].filter(Boolean).join('\n'),
       html: renderCyberEmail({
-        badgeText: 'SECURITY // ACCOUNT ACTIVATED',
+        badgeText: 'PORTAL // ACCOUNT READY',
         badgeType: 'success',
-        title: `Welcome to CICR Vault`,
-        subtitle: `Your student portal account has been created successfully.`,
+        title: `Welcome to CICR, ${context.userName}`,
+        subtitle: `Your student portal account has been prepared and activated.`,
         contentHtml,
         actionButton: {
-          text: 'Sign In to CICR Vault',
+          text: 'Open CICR Portal',
           url: portalUrl
         }
       })
