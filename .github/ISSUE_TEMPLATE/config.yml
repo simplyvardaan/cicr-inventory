@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a Security Vulnerability
+    url: https://github.com/simplyvardaan/cicr-inventory/security/advisories/new
+    about: Please report suspected security vulnerabilities privately through GitHub Security Advisories rather than public issues.
+  - name: Security Policy & Guidelines
+    url: https://github.com/simplyvardaan/cicr-inventory/blob/main/SECURITY.md
+    about: Review our security model, defense-in-depth architecture, and responsible disclosure policy.

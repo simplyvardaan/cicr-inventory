@@ -143,13 +143,47 @@ A large frontend pass (~2,500 line diff across `index.html`, `src/main.ts`, `src
 - **Developer Showcase Layout Perfection**: Locked developer social links to 1 horizontal row across all screen sizes; unified hero card length, height, and width across all member profiles; made carousel chevron buttons fully responsive, touch-optimized, and visible without viewport clipping.
 - **Security Hardening**: Purged one-off scripts with hardcoded credentials from git history and repository.
 
+## 14. v2.14.6 Release — Cybersecurity Audit Remediation & Defense-in-Depth Hardening
+**`v2.14.6` — security: harden access controls, remediate XSS, de-hardcode secrets, and enforce CSP**
+
+Comprehensive remediation across 8 vulnerability findings identified in the cybersecurity audit:
+
+1. **Stored & DOM XSS Remediation**:
+   - Deployed universal `escapeHtml` neutralizing `&`, `<`, `>`, `"`, `'` (`&#39;`), and `` ` `` (`&#96;`) across all dynamic template strings (approval cards, user tables, hardware queues, audit stream).
+   - Replaced innerHTML interpolation in `ToastManager` notifications with DOM `.textContent`.
+2. **Attribute Breakout Elimination in Event Handlers**:
+   - Replaced all inline `onclick` string interpolations with HTML5 `data-*` attributes (`data-action`, `data-user-id`, `data-request-id`, `data-log-id`).
+   - Bound actions via scoped DOM event delegation on `#admin-pending-list`, `#admin-users-tbody`, `#admin-hardware-list`, and `#admin-audit-stream`.
+   - Updated `AdminManager.escapeHtml` to delegate to universal 6-character escaping.
+3. **Privilege Escalation Eradication**:
+   - Completely removed insecure substring matching on names, emails, and usernames from `ModalManager.getCurrentRole()` and `isDesignatedAdmin()`.
+   - Role evaluation now strictly verifies cryptographically authenticated backend JWT role claims (`user.role === 'ADMIN'`).
+4. **Elimination of Global `window.admin*` Exposure**:
+   - Removed all privileged admin triggers from global window namespace (`window.adminApprove`, `window.adminReject`, `window.adminSetRole`, `window.adminDeleteUser`, `window.adminApproveHardware`, `window.adminRejectHardware`, `window.openAuditDetail`).
+   - Actions are strictly scoped to authenticated DOM listeners within the administrative portal.
+5. **DOM Credential Hygiene**:
+   - Ensured plaintext password values in `PasswordResetManager` are wiped from DOM inputs and local memory variables immediately upon submission.
+6. **Complete De-Hardcoding of Secrets & Personal Identifiers**:
+   - Eliminated hardcoded emails (`mahakkatahara.mk@gmail.com`, `992501210090@mail.jiit.ac.in`), usernames, and hardcoded localhost/render URLs.
+   - Refactored backend and frontend to consume environment configuration: `VITE_API_BASE`, `MASTER_ADMIN_EMAIL`, `BLOCKED_ADMIN_EMAILS`, `SUPER_ADMIN_EMAILS`, and `DEFAULT_ADMIN_NAME`.
+   - Removed mock fallback user arrays (`masterDefaults`, `defaultMembers`) from `loadUsers`.
+7. **Supply Chain & CDN Integrity**:
+   - Removed unpinned `<script src="https://unpkg.com/lucide@latest"></script>` without Subresource Integrity (SRI) from `index.html`. Lucide icons are bundled locally via npm.
+8. **Strict Content Security Policy (CSP)**:
+   - Configured `<meta http-equiv="Content-Security-Policy">` in `index.html` enforcing `default-src 'self'`, `frame-ancestors 'none'` (anti-clickjacking), and restrictive `connect-src` allowing only authorized Supabase, Render, Neon, and local endpoints.
+9. **Test Artifact & State Purge**:
+   - Purged all 58 mock accounts and 30 test audit logs with `.test` domains from Supabase database.
+   - Reset `backend/user_approval_data.json` and reset `backend/hardware_requests_data.json` to clean baseline state.
+   - Restored temporary test borrow record on `RUN CAM` and verified inventory stock restoration.
+
 ---
 
 ## Net effect
 
-Together, these changes move CICR VAULT from a direct "borrow now" model to a **request → admin-approval → borrow** workflow, add **automated due-date reminder emails**, introduce **live capacity/scale analytics** for the backend, and give the frontend a **theme switcher and mobile-friendly navigation**, backed by a substantially expanded backend test suite.
+Together, these changes move CICR VAULT from a direct "borrow now" model to a **request → admin-approval → borrow** workflow, add **automated due-date reminder emails**, introduce **live capacity/scale analytics** for the backend, provide a **hardened defense-in-depth security perimeter**, and give the frontend a **theme switcher and mobile-friendly navigation**, backed by a substantially expanded backend test suite.
 
 ### Suggested next steps if you're picking this up
 - Run the new migrations (`001_add_due_date_to_borrow_records.sql`, `002_add_reminder_sent_at_to_borrow_records.sql`) against your database.
 - Set `REMINDERS_ENABLED` and `SMTP_*` in your `.env` to enable real reminder emails (otherwise they run in mock mode).
 - Review `docs/BOTE_ESTIMATION.md` if you're planning capacity/infra changes.
+- Review `SECURITY.md` for vulnerability reporting guidelines and defense-in-depth controls.

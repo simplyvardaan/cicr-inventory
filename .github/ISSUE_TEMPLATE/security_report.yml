@@ -1,0 +1,40 @@
+name: Security Vulnerability (Private Disclosure)
+description: Report a security vulnerability or sensitive finding privately
+title: "[SECURITY]: "
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🔒 Security Vulnerability Report
+        **IMPORTANT:** Please do not submit public issues containing live credentials, tokens, or exploitable attack vectors.
+        For sensitive disclosures, submit via [GitHub Private Vulnerability Reporting](https://github.com/simplyvardaan/cicr-inventory/security/advisories/new).
+  - type: input
+    id: affected_component
+    attributes:
+      label: Affected Component / Endpoint
+      description: Which service, route, or client module is affected?
+      placeholder: e.g. /api/borrow, src/main.ts, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: vulnerability_description
+    attributes:
+      label: Description of the Vulnerability
+      description: Describe the nature of the issue and potential security impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction_steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed reproduction steps against a local development build (redacting all secrets).
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_fix
+    attributes:
+      label: Proposed Mitigation / Fix
+      description: Suggested defensive remediation or code change (if applicable).
+    validations:
+      required: false
