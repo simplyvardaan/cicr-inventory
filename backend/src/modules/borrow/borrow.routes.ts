@@ -23,7 +23,7 @@ const router = Router();
 
 router.get('/admins', authenticateToken, getAdmins);
 router.post('/admin/return-all-loans', authenticateToken, requireAdmin, returnAllLoansHandler);
-router.post('/', authenticateToken, borrowItem);
+router.post('/', authenticateToken, requireAdmin, borrowItem);
 router.post('/request', authenticateToken, createHardwareRequestHandler);
 router.post('/bulk-request', authenticateToken, submitBulkHardwareRequestHandler);
 router.get('/requests', authenticateToken, getHardwareRequestsHandler);

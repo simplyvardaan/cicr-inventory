@@ -12,9 +12,9 @@ import { authenticateToken, requireAdmin } from '../middleware/auth.middleware';
 
 const router = Router();
 
-// Public metrics
-router.get('/bote-metrics', getBoteMetrics);
-router.get('/simulate-scale', getSimulateScale);
+// System metrics & simulation endpoints (protected)
+router.get('/bote-metrics', authenticateToken, getBoteMetrics);
+router.get('/simulate-scale', authenticateToken, requireAdmin, getSimulateScale);
 
 // Protected (admin-only) replication / failover operations
 router.get('/replication/status', authenticateToken, requireAdmin, getReplicationStatusHandler);

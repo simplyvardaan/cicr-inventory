@@ -5841,6 +5841,8 @@ class AuthManager {
         const enrollment = (this.signupEnrollmentInp ? this.signupEnrollmentInp.value : '').trim();
         const batch = (this.signupBatchInp ? this.signupBatchInp.value : '').trim();
         const password = this.signupPassInp ? this.signupPassInp.value : '';
+        const confirmPassInp = document.getElementById('signup-confirm-password') as HTMLInputElement | null;
+        const confirmPassword = confirmPassInp ? confirmPassInp.value : '';
 
         this.signupErr.style.display = 'none';
         this.signupSuccess.style.display = 'none';
@@ -5880,8 +5882,14 @@ class AuthManager {
             return;
         }
 
+        if (password !== confirmPassword) {
+            this.showSignupError("Passwords do not match. Please verify and re-type.");
+            return;
+        }
+
         // Clear sensitive plaintext password from DOM memory immediately
         this.signupPassInp.value = '';
+        if (confirmPassInp) confirmPassInp.value = '';
 
         const btnSubmit = document.getElementById('btn-submit-signup') as HTMLButtonElement | null;
         const origSubmitHtml = btnSubmit ? btnSubmit.innerHTML : '';
