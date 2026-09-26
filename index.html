@@ -39,11 +39,12 @@
 
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/logo.png">
-    <!-- Google Fonts & Backend API Preconnect -->
+    <!-- Strict Content Security Policy (Defense-in-Depth against XSS & Unauthorized Exfiltration) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* https://*.onrender.com https://*.supabase.co https://*.neon.tech; img-src 'self' data: blob: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';">
+
+    <!-- Google Fonts Preconnect -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://cicr-inventory-backend.onrender.com" crossorigin>
-    <link rel="dns-prefetch" href="https://cicr-inventory-backend.onrender.com">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@500;700;900&family=Playfair+Display:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&display=swap"
         rel="stylesheet">
@@ -549,8 +550,6 @@
         transition: background-color 5000000s ease-in-out 0s !important;
       }
     </style>
-    <!-- Lucide Icons CDN (for runtime icons) -->
-    <script defer src="https://unpkg.com/lucide@latest"></script>
     <script type="module" src="/src/main.ts"></script>
 </head>
 

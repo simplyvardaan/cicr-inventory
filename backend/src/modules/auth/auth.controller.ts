@@ -706,7 +706,8 @@ export const changeUserRole = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ status: 'error', message: 'Cannot demote a Master Admin / Administrator.' });
     }
 
-    if (user.email.toLowerCase() === 'mahakkatahara.mk@gmail.com' && role === 'ADMIN') {
+    const blockedAdminEmails = (process.env.BLOCKED_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+    if (blockedAdminEmails.includes(user.email.toLowerCase()) && role === 'ADMIN') {
       return res.status(400).json({ status: 'error', message: 'User is not permitted to hold an ADMIN role.' });
     }
 
@@ -993,8 +994,8 @@ export const adminCreateUser = async (req: AuthRequest, res: Response) => {
     const userBatch = batch ? String(batch).trim() : null;
     const userRole = role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
 
-    // M-7.3: mirror the changeUserRole prohibition for this protected identity.
-    if (normEmail === 'mahakkatahara.mk@gmail.com' && userRole === 'ADMIN') {
+    const blockedAdminEmails = (process.env.BLOCKED_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+    if (blockedAdminEmails.includes(normEmail) && userRole === 'ADMIN') {
       return res.status(400).json({ status: 'error', message: 'User is not permitted to hold an ADMIN role.' });
     }
 

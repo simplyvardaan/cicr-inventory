@@ -10,51 +10,19 @@ export interface DesignatedAdminInfo {
   batch?: string;
 }
 
+export const MASTER_ADMIN_EMAIL = (process.env.MASTER_ADMIN_EMAIL || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com').trim().toLowerCase();
+
 export const DEFAULT_DESIGNATED_ADMINS: DesignatedAdminInfo[] = [
   {
-    email: 'vardaansaxena096@gmail.com',
-    name: 'Vardaan Saxena',
-    username: 'vardaan'
-  },
-  {
-    email: 'cicrinventory@gmail.com',
-    name: 'CICR Admin',
-    username: 'cicradmin'
-  },
-  {
-    email: '992501030399@mail.jiit.ac.in',
-    name: 'Vardaan Saxena',
-    username: 'srvkiller09',
-    roll_number: '992501030399'
-  },
-  {
-    email: '992401210050@mail.jiit.ac.in',
-    name: 'Gunjan Pal',
-    username: 'gunjanpal',
-    roll_number: '992401210050',
-    batch: 'Management Head'
-  },
-  {
-    email: '992401030123@mail.jiit.ac.in',
-    name: 'Dhruvi Gupta',
-    username: 'dhruvi',
-    roll_number: '992401030123',
-    batch: 'Management Head'
-  },
-  {
-    email: '992401030154@mail.jiit.ac.in',
-    name: 'Aryan Varshney',
-    username: 'aryanvarshney',
-    roll_number: '992401030154',
-    batch: 'COORDINATOR'
+    email: MASTER_ADMIN_EMAIL,
+    name: process.env.DEFAULT_ADMIN_NAME || 'CICR Lab Admin',
+    username: 'admin'
   }
 ];
 
-export const MASTER_ADMIN_EMAIL = (process.env.MASTER_ADMIN_EMAIL || 'vardaansaxena096@gmail.com').trim().toLowerCase();
-
 export const SUPER_ADMIN_EMAILS: string[] = process.env.SUPER_ADMIN_EMAILS
   ? process.env.SUPER_ADMIN_EMAILS.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
-  : DEFAULT_DESIGNATED_ADMINS.map((a) => a.email.toLowerCase());
+  : [MASTER_ADMIN_EMAIL];
 
 export const isSuperAdminEmail = (email: string): boolean => {
   const norm = email.trim().toLowerCase();
@@ -63,7 +31,12 @@ export const isSuperAdminEmail = (email: string): boolean => {
 
 export const isDesignatedAdmin = (email: string, _name?: string): boolean => {
   const norm = (email || '').trim().toLowerCase();
-  if (norm === '992501210090@mail.jiit.ac.in' || norm.includes('divyam')) return false;
+  const blockedAdminEmails = (process.env.BLOCKED_ADMIN_EMAILS || '')
+    .toLowerCase()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (blockedAdminEmails.some((b) => norm === b || norm.includes(b))) return false;
   // H-1 FIX: exact normalized email allow-list only. The display name,
   // roll number, or any email substring must NEVER grant ADMIN.
   // _name is accepted for backward compatibility and intentionally ignored.
@@ -279,7 +252,8 @@ export const setUserRole = (
 
   purgedEmails.delete(normEmail);
 
-  if (normEmail === 'mahakkatahara.mk@gmail.com' || normEmail === '992501210090@mail.jiit.ac.in' || normEmail.includes('divyam')) {
+  const blockedAdminEmails = (process.env.BLOCKED_ADMIN_EMAILS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean);
+  if (blockedAdminEmails.includes(normEmail)) {
     role = 'MEMBER';
   }
 

@@ -138,12 +138,13 @@ let API_BASE = (() => {
         }
     }
     return (import.meta.env.VITE_API_BASE as string) ||
+        (import.meta.env.VITE_API_BASE_URL as string) ||
         (isLocalHost
             ? `http://${(typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) ? 'localhost' : (typeof window !== 'undefined' ? window.location.hostname : 'localhost')}:5000/api`
-            : 'https://cicr-inventory-backend.onrender.com/api');
+            : '/api');
 })();
 
-const CLOUD_API_FALLBACK = 'https://cicr-inventory-backend.onrender.com/api';
+const CLOUD_API_FALLBACK = (import.meta.env.VITE_API_FALLBACK_URL as string) || (import.meta.env.VITE_API_BASE as string) || (import.meta.env.VITE_API_BASE_URL as string) || '/api';
 
 // Intelligent Automatic Failover: If local backend request fails, fall back for that request without permanently poisoning API_BASE
 if (typeof window !== 'undefined' && window.fetch) {
@@ -176,7 +177,19 @@ if (typeof window !== 'undefined' && window.fetch) {
     };
 }
 
-const ADMIN_USERNAME = 'SRVKILLER09';
+/**
+ * Universal HTML escape helper that neutralizes: &, <, >, ", ', and `
+ * Prevents attribute breakout and DOM injection.
+ */
+export function escapeHtml(str: any): string {
+    return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/`/g, '&#96;');
+}
 
 type UserRole = 'ADMIN' | 'MEMBER';
 
@@ -261,13 +274,18 @@ class ToastManager {
                 <i data-lucide="${iconName}"></i>
             </div>
             <div class="toast-content-wrap">
-                <h4 class="toast-title">${title}</h4>
-                <p class="toast-desc">${desc}</p>
+                <h4 class="toast-title"></h4>
+                <p class="toast-desc"></p>
             </div>
             <button class="toast-close-btn" title="Dismiss">
                 <i data-lucide="x" style="width:14px;height:14px;"></i>
             </button>
         `;
+
+        const titleEl = toast.querySelector<HTMLElement>('.toast-title');
+        if (titleEl) titleEl.textContent = title;
+        const descEl = toast.querySelector<HTMLElement>('.toast-desc');
+        if (descEl) descEl.textContent = desc;
 
         toast.querySelector('.toast-close-btn')!.addEventListener('click', () => {
             toast.classList.remove('show');
@@ -304,7 +322,7 @@ class ToastManager {
         toast.innerHTML = `
             <div class="welcome-toast-glow"></div>
             <div class="welcome-avatar-wrap">
-                <span class="welcome-avatar-letter">${initial}</span>
+                <span class="welcome-avatar-letter"></span>
                 <span class="welcome-status-dot"></span>
             </div>
             <div class="welcome-body">
@@ -312,10 +330,10 @@ class ToastManager {
                     <span class="welcome-badge">
                         <i data-lucide="shield-check"></i> AUTHENTICATED
                     </span>
-                    <span class="welcome-role-pill ${displayRole.toLowerCase()}">${displayRole}</span>
+                    <span class="welcome-role-pill ${escapeHtml(displayRole.toLowerCase())}"></span>
                 </div>
                 <div class="welcome-headline">
-                    Welcome, <span class="welcome-highlight-name">${userName}</span>
+                    Welcome, <span class="welcome-highlight-name"></span>
                 </div>
                 <div class="welcome-subtext">
                     Access granted to CICR Robotics Inventory
@@ -328,6 +346,13 @@ class ToastManager {
                 <div class="welcome-progress-fill"></div>
             </div>
         `;
+
+        const letterEl = toast.querySelector<HTMLElement>('.welcome-avatar-letter');
+        if (letterEl) letterEl.textContent = initial;
+        const rolePill = toast.querySelector<HTMLElement>('.welcome-role-pill');
+        if (rolePill) rolePill.textContent = displayRole;
+        const nameEl = toast.querySelector<HTMLElement>('.welcome-highlight-name');
+        if (nameEl) nameEl.textContent = userName;
 
         toast.querySelector('.toast-close-btn')!.addEventListener('click', () => {
             toast.classList.remove('show');
@@ -2010,7 +2035,7 @@ class DashboardManager {
 
         const isAdmin = ModalManager.getCurrentRole() === 'ADMIN';
         const deleteBtnHtml = isAdmin ? `
-            <button class="btn-card-delete-item" data-id="${item.id}" data-name="${AdminManager.escapeHtml(itemName)}" onclick="event.stopPropagation(); event.preventDefault(); window.adminDeleteItem('${item.id}', '${AdminManager.escapeHtml(itemName)}')" title="Delete Component from Inventory">
+            <button class="btn-card-delete-item" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(itemName)}" title="Delete Component from Inventory">
                 ${getFastIconSvg('trash-2', 13)}
             </button>
         ` : '';
@@ -2140,6 +2165,15 @@ class DashboardManager {
                     ModalManager.openDetailModal(item);
                 });
             }
+        }
+
+        const delBtn = card.querySelector<HTMLButtonElement>('.btn-card-delete-item');
+        if (delBtn) {
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                AdminManager.promptDeleteItem(item.id, itemName);
+            });
         }
 
         card.addEventListener('click', () => {
@@ -3198,148 +3232,19 @@ class ModalManager {
         selectedItem = null;
     }
 
-    public static readonly DESIGNATED_ADMIN_EMAILS: ReadonlySet<string> = new Set([
-        'vardaansaxena096@gmail.com',
-        'cicrinventory@gmail.com',
-        '992501030399@mail.jiit.ac.in', // Vardaan Saxena
-        '992401210050@mail.jiit.ac.in', // Gunjan Pal
-        '992401030123@mail.jiit.ac.in', // Dhruvi Gupta
-        '992401030154@mail.jiit.ac.in'  // Aryan Varshney
-    ]);
-
-    public static readonly DESIGNATED_ADMIN_ROLLS: ReadonlySet<string> = new Set([
-        '992501030399', // Vardaan Saxena
-        '992401210050', // Gunjan Pal
-        '992401030123', // Dhruvi Gupta
-        '992401030154'  // Aryan Varshney
-    ]);
-
-    public static readonly DESIGNATED_ADMIN_NAMES: ReadonlySet<string> = new Set([
-        'vardaan saxena',
-        'gunjan pal',
-        'dhruvi gupta',
-        'aryan varshney'
-    ]);
-
-    public static readonly DESIGNATED_ADMIN_USERNAMES: ReadonlySet<string> = new Set([
-        'srvkiller09',
-        ADMIN_USERNAME.toLowerCase()
-    ]);
-
-    public static isDesignatedAdminUser(email?: string | null, name?: string | null, username?: string | null): boolean {
-        const normEmail = (email || '').toLowerCase().trim();
-        const normName = (name || '').toLowerCase().trim();
-        const normUser = (username || '').toLowerCase().trim();
-
-        // 0. Explicit Member Restriction: Divyam Jain is strictly MEMBER, never Admin
-        if (
-            normEmail === '992501210090@mail.jiit.ac.in' ||
-            normEmail.startsWith('992501210090@') ||
-            normName === 'divyam jain' ||
-            normUser === 'divyam jain' ||
-            normUser === '992501210090'
-        ) {
-            return false;
-        }
-
-        // 1. Exact Email Allowlist Match
-        if (normEmail && this.DESIGNATED_ADMIN_EMAILS.has(normEmail)) {
-            return true;
-        }
-
-        // 2. Email starting with exact designated roll number (e.g. 992401030154@...)
-        if (normEmail && normEmail.includes('@')) {
-            const rollPart = normEmail.split('@')[0];
-            if (this.DESIGNATED_ADMIN_ROLLS.has(rollPart)) {
-                return true;
-            }
-        }
-
-        // 3. Exact Roll Number Match
-        if (this.DESIGNATED_ADMIN_ROLLS.has(normEmail) || this.DESIGNATED_ADMIN_ROLLS.has(normUser)) {
-            return true;
-        }
-
-        // 4. Exact Username Allowlist Match
-        if (normUser && this.DESIGNATED_ADMIN_USERNAMES.has(normUser)) {
-            return true;
-        }
-
-        // 5. Exact Full Name Match (strict normalized equality, not loose substring)
-        if (normName && this.DESIGNATED_ADMIN_NAMES.has(normName)) {
-            return true;
-        }
-
-        return false;
+    public static isDesignatedAdminUser(_email?: string | null, _name?: string | null, _username?: string | null): boolean {
+        return this.getCurrentRole() === 'ADMIN';
     }
 
     public static getCurrentRole(): UserRole {
         const userStr = localStorage.getItem('cicr_user');
-        if (userStr) {
-            try {
-                const user = JSON.parse(userStr);
-                const email = (user.email || '').toLowerCase().trim();
-                const name = (user.name || '').toLowerCase().trim();
-                const username = (user.username || '').toLowerCase().trim();
-
-                // Explicit Member Restriction: Divyam Jain is strictly MEMBER, never Admin
-                if (
-                    email === '992501210090@mail.jiit.ac.in' ||
-                    email.startsWith('992501210090@') ||
-                    name === 'divyam jain' ||
-                    username === 'divyam jain' ||
-                    username === '992501210090'
-                ) {
-                    return 'MEMBER';
-                }
-
-                // Designated Admins: Gunjan, Dhruvi, Aryan & Vardaan ALWAYS have full ADMIN powers!
-                if (this.isDesignatedAdminUser(email, name, username)) {
-                    return 'ADMIN';
-                }
-
-                // Verified DB admin role
-                if (user.role === 'ADMIN') {
-                    return 'ADMIN';
-                }
-
-                // Blocked from admin
-                if (email === 'mahakkatahara.mk@gmail.com') {
-                    return 'MEMBER';
-                }
-
-                if (email.endsWith('@mail.jiit.ac.in') || email.endsWith('@jiit.ac.in')) {
-                    return 'MEMBER';
-                }
-
-                return 'MEMBER';
-            } catch { }
-        }
-
-        const storedRole = localStorage.getItem('cicr_role');
-        const authName = (localStorage.getItem('cicr_auth') || '').toLowerCase().trim();
-
-        if (
-            authName === '992501210090@mail.jiit.ac.in' ||
-            authName.startsWith('992501210090@') ||
-            authName === 'divyam jain' ||
-            authName === '992501210090'
-        ) {
+        if (!userStr) return 'MEMBER';
+        try {
+            const user = JSON.parse(userStr);
+            return user && user.role === 'ADMIN' ? 'ADMIN' : 'MEMBER';
+        } catch {
             return 'MEMBER';
         }
-
-        if (this.isDesignatedAdminUser(authName, authName, authName)) {
-            return 'ADMIN';
-        }
-
-        if (storedRole === 'ADMIN') {
-            const token = localStorage.getItem('cicr_token');
-            if (token) {
-                return 'ADMIN';
-            }
-        }
-
-        return 'MEMBER';
     }
 
     private static isAdmin() {
@@ -3397,24 +3302,24 @@ class ModalManager {
             requestEl.innerHTML = `
                 <div class="request-item-header">
                     <div>
-                        <h4 class="request-item-title">${request.itemName}</h4>
+                        <h4 class="request-item-title">${escapeHtml(request.itemName)}</h4>
                         <div class="request-item-meta">
-                            <span>${request.name}</span>
-                            <span>${request.roll}</span>
-                            <span>${request.qty} units</span>
+                            <span>${escapeHtml(request.name)}</span>
+                            <span>${escapeHtml(request.roll)}</span>
+                            <span>${Number(request.qty) || 1} units</span>
                         </div>
                     </div>
-                    <span class="request-status-chip request-status-pending">${request.status}</span>
+                    <span class="request-status-chip request-status-pending">${escapeHtml(request.status)}</span>
                 </div>
                 <div class="request-item-meta">
-                    <span>Purpose: ${request.purpose}</span>
-                    <span>Requested: ${request.requestedAt}</span>
+                    <span>Purpose: ${escapeHtml(request.purpose)}</span>
+                    <span>Requested: ${escapeHtml(request.requestedAt)}</span>
                 </div>
                 <div class="request-item-actions">
-                    <button class="btn btn-primary request-approve-btn" data-request-id="${request.id}">
+                    <button class="btn btn-primary request-approve-btn" data-request-id="${escapeHtml(request.id)}">
                         <i data-lucide="check"></i> Approve
                     </button>
-                    <button class="btn btn-secondary request-reject-btn" data-request-id="${request.id}">
+                    <button class="btn btn-secondary request-reject-btn" data-request-id="${escapeHtml(request.id)}">
                         <i data-lucide="x"></i> Reject
                     </button>
                 </div>
@@ -3743,12 +3648,12 @@ class ModalManager {
                 recEl.className = 'borrower-record';
                 recEl.innerHTML = `
                     <div class="borrower-info-main">
-                        <span class="borrower-name">${rec.name} ${isMyRecord ? '(Your Active Loan)' : ''}</span>
-                        <span class="borrower-roll">${rec.roll} &bull; ${rec.purpose}</span>
+                        <span class="borrower-name">${escapeHtml(rec.name)} ${isMyRecord ? '(Your Active Loan)' : ''}</span>
+                        <span class="borrower-roll">${escapeHtml(rec.roll)} &bull; ${escapeHtml(rec.purpose)}</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         ${statusBadge}
-                        <span class="borrower-qty-badge">${rec.qty} units</span>
+                        <span class="borrower-qty-badge">${Number(rec.qty) || 1} units</span>
                         ${canReturn ? (
                         isRecPendingReturn && role !== 'ADMIN'
                             ? `<button class="btn btn-secondary" disabled style="padding: 6px 10px; font-size: 11px; opacity: 0.6; cursor: not-allowed;"><i data-lucide="clock" style="width:12px;height:12px;"></i> Verification Pending</button>`
@@ -4245,23 +4150,23 @@ class ModalManager {
                 </div>
                 <div class="notif-card-body">
                     <p class="notif-card-main-text">
-                        <strong>${bQty}x ${req.itemName}</strong> ${isReturnCard ? 'return requested by' : (status === 'APPROVED' ? 'approved & issued to' : (status === 'REJECTED' ? 'request from' : 'requested by'))} <span class="notif-user-pill">${bName}</span> (${bRoll})
+                        <strong>${bQty}x ${escapeHtml(req.itemName)}</strong> ${isReturnCard ? 'return requested by' : (status === 'APPROVED' ? 'approved & issued to' : (status === 'REJECTED' ? 'request from' : 'requested by'))} <span class="notif-user-pill">${escapeHtml(bName)}</span> (${escapeHtml(bRoll)})
                     </p>
                     <p class="notif-card-sub-text">
-                        Purpose: ${req.purpose || (isReturnCard ? 'Return of hardware' : 'Lab Project')} &bull; Requested: ${req.requestedAt ? new Date(req.requestedAt).toLocaleDateString() : 'Recent'}
-                        ${req.dueDate ? ` &bull; Due Date: <strong>${req.dueDate}</strong>` : ''}
+                        Purpose: ${escapeHtml(req.purpose || (isReturnCard ? 'Return of hardware' : 'Lab Project'))} &bull; Requested: ${req.requestedAt ? new Date(req.requestedAt).toLocaleDateString() : 'Recent'}
+                        ${req.dueDate ? ` &bull; Due Date: <strong>${escapeHtml(req.dueDate)}</strong>` : ''}
                     </p>
                     ${status === 'APPROVED' ? `
                         <div class="card-request-admin-note note-approved">
                             <i data-lucide="shield-check" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></i>
-                            Approved by: <strong>${reviewer}</strong>${req.reviewedAt ? ` &bull; on ${new Date(req.reviewedAt).toLocaleDateString()}` : ''}
+                            Approved by: <strong>${escapeHtml(reviewer)}</strong>${req.reviewedAt ? ` &bull; on ${new Date(req.reviewedAt).toLocaleDateString()}` : ''}
                         </div>
                     ` : ''}
                     ${status === 'REJECTED' ? `
                         <div class="card-request-admin-note">
                             <i data-lucide="alert-circle" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></i>
-                            Declined by: <strong>${reviewer}</strong>${req.reviewedAt ? ` &bull; on ${new Date(req.reviewedAt).toLocaleDateString()}` : ''}
-                            ${reviewNote ? `<br>Reason: "${reviewNote}"` : ''}
+                            Declined by: <strong>${escapeHtml(reviewer)}</strong>${req.reviewedAt ? ` &bull; on ${new Date(req.reviewedAt).toLocaleDateString()}` : ''}
+                            ${reviewNote ? `<br>Reason: "${escapeHtml(reviewNote)}"` : ''}
                         </div>
                     ` : ''}
                     ${status === 'PENDING' ? `
@@ -5714,9 +5619,7 @@ class AuthManager {
     private static loginSuccess(username: string, role: string = 'MEMBER', _userObj?: any) {
         this.recordActivity(true);
         let effectiveRole: 'ADMIN' | 'MEMBER' = 'MEMBER';
-        const normEmail = (_userObj?.email || '').toLowerCase().trim();
-
-        if (ModalManager.isDesignatedAdminUser(normEmail, _userObj?.name, username) || role === 'ADMIN') {
+        if (role === 'ADMIN' || _userObj?.role === 'ADMIN') {
             effectiveRole = 'ADMIN';
         } else {
             effectiveRole = 'MEMBER';
@@ -6303,8 +6206,8 @@ class PasswordResetManager {
     private static async handleDirectReset() {
         if (!this.identifierInput || !this.currentPassInput || !this.newPassInput || !this.confirmPassInput) return;
         const identifier = this.identifierInput.value.trim();
-        const currentPassword = this.currentPassInput.value;
-        const newPassword = this.newPassInput.value;
+        let currentPassword = this.currentPassInput.value;
+        let newPassword = this.newPassInput.value;
         const confirmPassword = this.confirmPassInput.value;
         if (this.errorEl) this.errorEl.style.display = 'none';
 
@@ -6374,9 +6277,10 @@ class PasswordResetManager {
                 if (loginUser) loginUser.value = identifier;
                 const loginPass = document.getElementById('login-password') as HTMLInputElement | null;
                 if (loginPass) {
-                    loginPass.value = newPassword;
+                    loginPass.value = '';
                     loginPass.focus();
                 }
+                newPassword = '';
 
                 document.getElementById('go-to-login')?.click();
             }
@@ -6671,18 +6575,89 @@ class AdminManager {
             }
         });
 
-        // Attach window methods for onclick handlers
-        window.openAuditDetail = (id: string) => this.openAuditDetail(id);
-        window.openBulkReturnModal = () => ModalManager.openBulkReturnModal();
-        window.adminApprove = (id: string) => this.approveUser(id);
-        window.adminReject = (id: string) => this.rejectUser(id);
-        window.adminSetRole = (id: string, role: 'ADMIN' | 'MEMBER') => this.setRole(id, role);
-        window.adminDeleteUser = (id: string, name: string) => this.deleteUser(id, name);
-        window.adminDeleteItem = (id: string, name: string) => this.promptDeleteItem(id, name);
-        (window as any).inspectUserProfile = (info: any) => AdminManager.inspectUserProfile(info);
+        // Secure event delegation for admin actions (prevents global window exposure and inline script execution)
+        const pendingContainer = document.getElementById('admin-pending-list');
+        if (pendingContainer && !pendingContainer.dataset.boundDelegation) {
+            pendingContainer.dataset.boundDelegation = 'true';
+            pendingContainer.addEventListener('click', (e) => {
+                const target = e.target as HTMLElement;
+                const approveBtn = target.closest<HTMLElement>('[data-action="approve"]');
+                if (approveBtn) {
+                    e.stopPropagation();
+                    const id = approveBtn.dataset.userId;
+                    if (id) this.approveUser(id);
+                    return;
+                }
+                const rejectBtn = target.closest<HTMLElement>('[data-action="reject"]');
+                if (rejectBtn) {
+                    e.stopPropagation();
+                    const id = rejectBtn.dataset.userId;
+                    if (id) this.rejectUser(id);
+                    return;
+                }
+            });
+        }
 
-        window.adminApproveHardware = (id: string) => this.approveHardware(id);
-        window.adminRejectHardware = (id: string) => this.rejectHardware(id);
+        const usersTbody = document.getElementById('admin-users-tbody');
+        if (usersTbody && !usersTbody.dataset.boundDelegation) {
+            usersTbody.dataset.boundDelegation = 'true';
+            usersTbody.addEventListener('click', (e) => {
+                const target = e.target as HTMLElement;
+                const setRoleBtn = target.closest<HTMLElement>('[data-action="set-role"]');
+                if (setRoleBtn) {
+                    e.stopPropagation();
+                    const id = setRoleBtn.dataset.userId;
+                    const role = setRoleBtn.dataset.role as 'ADMIN' | 'MEMBER';
+                    if (id && role) this.setRole(id, role);
+                    return;
+                }
+                const delBtn = target.closest<HTMLElement>('[data-action="delete"]');
+                if (delBtn) {
+                    e.stopPropagation();
+                    const id = delBtn.dataset.userId;
+                    const name = delBtn.dataset.userName || '';
+                    if (id) this.deleteUser(id, name);
+                    return;
+                }
+            });
+        }
+
+        const hwList = document.getElementById('admin-hardware-list');
+        if (hwList && !hwList.dataset.boundDelegation) {
+            hwList.dataset.boundDelegation = 'true';
+            hwList.addEventListener('click', (e) => {
+                const target = e.target as HTMLElement;
+                const approveBtn = target.closest<HTMLElement>('[data-action="hw-approve"]');
+                if (approveBtn) {
+                    e.stopPropagation();
+                    const id = approveBtn.dataset.requestId;
+                    if (id) this.approveHardware(id);
+                    return;
+                }
+                const rejectBtn = target.closest<HTMLElement>('[data-action="hw-reject"]');
+                if (rejectBtn) {
+                    e.stopPropagation();
+                    const id = rejectBtn.dataset.requestId;
+                    if (id) this.rejectHardware(id);
+                    return;
+                }
+            });
+        }
+
+        const auditList = document.getElementById('admin-audit-stream') || document.getElementById('admin-audit-list');
+        if (auditList && !auditList.dataset.boundDelegation) {
+            auditList.dataset.boundDelegation = 'true';
+            auditList.addEventListener('click', (e) => {
+                const target = e.target as HTMLElement;
+                const card = target.closest<HTMLElement>('[data-log-id]');
+                if (card && card.dataset.logId) {
+                    this.openAuditDetail(card.dataset.logId);
+                }
+            });
+        }
+
+        (window as any).openBulkReturnModal = () => ModalManager.openBulkReturnModal();
+        (window as any).inspectUserProfile = (info: any) => AdminManager.inspectUserProfile(info);
     }
 
     static async loadUsers(force = false) {
@@ -6702,7 +6677,6 @@ class AdminManager {
                             const email = (u?.email || '').toLowerCase().trim();
                             const name = (u?.name || '').toLowerCase().trim();
                             if (email.endsWith('.test') || email.includes('cicr.test')) return false;
-                            if (email.startsWith('admin1@') || email.startsWith('9990001111') || email.startsWith('9923103001') || email.startsWith('992501714955')) return false;
                             if (name === 'test user' || name === 'test admin' || name === 'admin user' || name === 'test student') return false;
                             return true;
                         });
@@ -6715,140 +6689,6 @@ class AdminManager {
                 console.error('Failed to fetch admin users:', err);
             }
         }
-
-        // Ensure All Admins have full Master Admin powers in directory
-        const masterDefaults: AdminUserRecord[] = [
-            {
-                id: 'master-vardaan',
-                name: 'Vardaan Saxena',
-                email: '992501030399@mail.jiit.ac.in',
-                roll_number: '992501030399',
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                created_at: '2026-09-08T17:01:03.000Z'
-            },
-            {
-                id: 'master-vardaan-owner',
-                name: 'Vardaan (Owner)',
-                email: 'vardaansaxena096@gmail.com',
-                roll_number: null,
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                created_at: '2026-09-08T17:01:03.000Z'
-            },
-            {
-                id: 'master-gunjan',
-                name: 'Gunjan Pal',
-                email: '992401210050@mail.jiit.ac.in',
-                roll_number: '992401210050',
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                batch: 'Management Head',
-                created_at: '2026-09-08T17:00:00.000Z'
-            },
-            {
-                id: 'master-dhruvi',
-                name: 'Dhruvi Gupta',
-                email: '992401030123@mail.jiit.ac.in',
-                roll_number: '992401030123',
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                batch: 'Management Head',
-                created_at: '2026-09-08T17:00:00.000Z'
-            },
-            {
-                id: 'master-aryan',
-                name: 'Aryan Varshney',
-                email: '992401030154@mail.jiit.ac.in',
-                roll_number: '992401030154',
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                batch: 'COORDINATOR',
-                created_at: '2026-09-08T17:00:00.000Z'
-            },
-            {
-                id: 'master-cicr',
-                name: 'CICR Admin',
-                email: 'cicrinventory@gmail.com',
-                roll_number: null,
-                role: 'ADMIN',
-                status: 'APPROVED',
-                isMasterAdmin: true,
-                created_at: '2026-09-08T17:00:01.000Z'
-            }
-        ];
-
-        for (const m of masterDefaults) {
-            const existing = this.users.find(u => u.email.toLowerCase() === m.email.toLowerCase());
-            if (existing) {
-                existing.role = 'ADMIN';
-                existing.status = 'APPROVED';
-                existing.isMasterAdmin = true;
-                if (!existing.name || existing.name === 'Anonymous') existing.name = m.name;
-                if (!existing.batch && m.batch) existing.batch = m.batch;
-            } else if (this.users.length === 0) {
-                this.users.push(m);
-            }
-        }
-
-        // Only seed default members if user directory is empty (e.g. offline/initial demo state)
-        if (this.users.length === 0) {
-            const defaultMembers: AdminUserRecord[] = [
-                { id: 'mem-dhairya', name: 'Dhairya Mittal', email: 'jeg262612@mail.jiit.ac.in', roll_number: '992501030400', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-gourav', name: 'GOURAV MANDAL', email: '992501210003@mail.jiit.ac.in', roll_number: '992501210003', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-arsh', name: 'mohammad arsh', email: 'bcg26260@mail.jiit.ac.in', roll_number: '992501040050', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-gungun', name: 'Gungun Yadav', email: 'njg262503@mail.jiit.ac.in', roll_number: '992501030380', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F6 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-kanan', name: 'Kanan Goyal', email: '992510170013@mail.jiit.ac.in', roll_number: '992510170013', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'MCA1', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-pulkit', name: 'Pulkit Sukhija', email: '992501220058@mail.jiit.ac.in', roll_number: '992501220058', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E2 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-shaurya', name: 'Kumar Shaurya', email: '992501040097@mail.jiit.ac.in', roll_number: '992501040097', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H3 IT', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-arohan', name: 'Arohan', email: '992501210016@mail.jiit.ac.in', roll_number: '992501210016', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-tushar', name: 'Tushar Goyal', email: '992501210081@mail.jiit.ac.in', roll_number: '992501210081', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-agamjot', name: 'Agamjot Singh', email: '992501030404@mail.jiit.ac.in', roll_number: '992501030404', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-utsavi', name: 'Utsavi Sinha', email: '992501210022@mail.jiit.ac.in', roll_number: '992501210022', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-tanisha', name: 'Tanisha', email: '992501040037@mail.jiit.ac.in', roll_number: '992501040037', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-kushagra', name: 'Kushagra Garg', email: '992501030406@mail.jiit.ac.in', roll_number: '992501030406', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-parivisha', name: 'Parivisha Midha', email: '992501040035@mail.jiit.ac.in', roll_number: '992501040035', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-                { id: 'mem-juhi', name: 'Juhi Singh', email: 'jeg262274@mail.jiit.ac.in', roll_number: 'JEG262274', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F27 AI & ML', created_at: '2026-09-24T18:00:00.000Z' },
-                { id: 'mem-dev', name: 'Dev Maheshwari', email: '992501210067@mail.jiit.ac.in', roll_number: '992501210067', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-24T18:20:00.000Z' }
-            ];
-
-            for (const mem of defaultMembers) {
-                const existing = this.users.find(u => u.email.toLowerCase() === mem.email.toLowerCase());
-                if (!existing) {
-                    this.users.push(mem);
-                }
-            }
-        }
-
-        this.users.forEach(u => {
-            const uEmail = (u.email || '').toLowerCase().trim();
-            const uName = (u.name || '').toLowerCase().trim();
-            const uUser = (u.username || '').toLowerCase().trim();
-
-            // Divyam Jain is strictly MEMBER, never Admin
-            if (
-                uEmail === '992501210090@mail.jiit.ac.in' ||
-                uEmail.includes('992501210090') ||
-                uEmail.includes('divyam') ||
-                uName.includes('divyam') ||
-                uUser.includes('divyam')
-            ) {
-                u.role = 'MEMBER';
-                u.isMasterAdmin = false;
-                return;
-            }
-
-            if (u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username)) {
-                u.role = 'ADMIN';
-                u.status = 'APPROVED';
-                u.isMasterAdmin = true;
-            }
-        });
 
 
         this.updateStats();
@@ -7102,11 +6942,11 @@ class AdminManager {
             const origQty = Number(r.originalQuantity) || 0;
             const isQueueAdjusted = !isReturn && origQty > 0 && origQty > r.quantity;
             return `
-            <div class="hardware-request-card glass" data-request-id="${r.id}">
+            <div class="hardware-request-card glass" data-request-id="${escapeHtml(r.id)}">
                 <div class="hw-card-header">
                     <div class="hw-card-chip">
                         <i data-lucide="${isReturn ? 'corner-up-left' : 'cpu'}" style="width:14px; height:14px; color:var(--neon-cyan);"></i>
-                        <span class="hw-item-name">${r.itemName}</span>
+                        <span class="hw-item-name">${escapeHtml(r.itemName)}</span>
                         ${r.queuePosition ? `<span class="hw-queue-pos" style="font-size:10px; background:rgba(99,102,241,0.18); border:1px solid rgba(99,102,241,0.35); color:#a5b4fc; border-radius:4px; padding:1px 6px; margin-left:6px;"><i data-lucide="layers" style="width:10px;height:10px;display:inline-block;vertical-align:middle;"></i> Queue #${r.queuePosition}</span>` : ''}
                     </div>
                     <span class="hw-qty-badge" style="${isQueueAdjusted ? 'background:rgba(245,158,11,0.2); border-color:rgba(245,158,11,0.45); color:#fbbf24;' : ''}">
@@ -7116,28 +6956,28 @@ class AdminManager {
                 </div>
 
                 <div class="hw-card-requester">
-                    <div class="hw-avatar admin-user-clickable" data-user-name="${this.escapeHtml(r.borrowerName)}" data-user-email="${this.escapeHtml(r.borrowerEmail)}" data-user-roll="${this.escapeHtml(r.rollNumber || '')}" title="Inspect Member Profile">${r.borrowerName.charAt(0).toUpperCase()}</div>
+                    <div class="hw-avatar admin-user-clickable" data-user-name="${this.escapeHtml(r.borrowerName)}" data-user-email="${this.escapeHtml(r.borrowerEmail)}" data-user-roll="${this.escapeHtml(r.rollNumber || '')}" title="Inspect Member Profile">${r.borrowerName ? escapeHtml(r.borrowerName.charAt(0).toUpperCase()) : 'U'}</div>
                     <div class="hw-meta-col">
-                        <span class="hw-requester-name admin-user-clickable" data-user-name="${this.escapeHtml(r.borrowerName)}" data-user-email="${this.escapeHtml(r.borrowerEmail)}" data-user-roll="${this.escapeHtml(r.rollNumber || '')}" title="Inspect Member Profile">${r.borrowerName}</span>
-                        <span class="hw-requester-email">${r.borrowerEmail}</span>
+                        <span class="hw-requester-name admin-user-clickable" data-user-name="${this.escapeHtml(r.borrowerName)}" data-user-email="${this.escapeHtml(r.borrowerEmail)}" data-user-roll="${this.escapeHtml(r.rollNumber || '')}" title="Inspect Member Profile">${escapeHtml(r.borrowerName)}</span>
+                        <span class="hw-requester-email">${escapeHtml(r.borrowerEmail)}</span>
                     </div>
                 </div>
 
                 <div class="hw-card-details">
-                    ${r.rollNumber ? `<div class="hw-detail-row"><span class="hw-lbl">ROLL:</span> <span class="hw-val mono">${r.rollNumber}</span></div>` : ''}
+                    ${r.rollNumber ? `<div class="hw-detail-row"><span class="hw-lbl">ROLL:</span> <span class="hw-val mono">${escapeHtml(r.rollNumber)}</span></div>` : ''}
                     ${isReturn
-                    ? `<div class="hw-detail-row"><span class="hw-lbl">RETURNING:</span> <span class="hw-val">${returnQty}x ${r.itemName}</span></div>`
-                    : `<div class="hw-detail-row"><span class="hw-lbl">PURPOSE:</span> <span class="hw-val">${r.purpose}</span></div>`}
+                    ? `<div class="hw-detail-row"><span class="hw-lbl">RETURNING:</span> <span class="hw-val">${returnQty}x ${escapeHtml(r.itemName)}</span></div>`
+                    : `<div class="hw-detail-row"><span class="hw-lbl">PURPOSE:</span> <span class="hw-val">${escapeHtml(r.purpose)}</span></div>`}
                     ${isQueueAdjusted ? `<div class="hw-detail-row"><span class="hw-lbl">QUEUE MATH:</span> <span class="hw-val" style="color:#fbbf24; font-weight:700;">Auto-Allocated ${r.quantity} of ${origQty} units (Remaining stock: ${r.queueAvailable !== undefined ? r.queueAvailable : r.quantity})</span></div>` : ''}
-                    ${isReturn ? '' : `<div class="hw-detail-row"><span class="hw-lbl">DUE DATE:</span> <span class="hw-val due">${r.dueDate || '7 Days'}</span></div>`}
+                    ${isReturn ? '' : `<div class="hw-detail-row"><span class="hw-lbl">DUE DATE:</span> <span class="hw-val due">${escapeHtml(r.dueDate || '7 Days')}</span></div>`}
                     <div class="hw-detail-row"><span class="hw-lbl">REQUESTED:</span> <span class="hw-val date">${new Date(r.requestedAt).toLocaleString()}</span></div>
                 </div>
 
                 <div class="hw-card-actions">
-                    <button class="btn-hw-approve" onclick="window.adminApproveHardware('${r.id}')">
+                    <button class="btn-hw-approve" data-action="hw-approve" data-request-id="${escapeHtml(r.id)}">
                         <i data-lucide="check"></i> ${isReturn ? 'Approve Return' : 'Approve Issue'}
                     </button>
-                    <button class="btn-hw-reject" onclick="window.adminRejectHardware('${r.id}')">
+                    <button class="btn-hw-reject" data-action="hw-reject" data-request-id="${escapeHtml(r.id)}">
                         <i data-lucide="x"></i> Reject
                     </button>
                 </div>
@@ -7494,24 +7334,24 @@ class AdminManager {
         container.innerHTML = pendingUsers.map(u => {
             const dt = DashboardManager.formatLogDateTime(u.created_at);
             return `
-            <div class="pending-request-card glass" data-user-id="${u.id}">
+            <div class="pending-request-card glass" data-user-id="${escapeHtml(u.id)}">
                 <div class="pending-card-top">
-                    <div class="pending-card-avatar admin-user-clickable" data-user-id="${u.id}" data-user-name="${this.escapeHtml(u.name)}" data-user-email="${this.escapeHtml(u.email)}" data-user-roll="${this.escapeHtml(u.roll_number || '')}" data-user-batch="${this.escapeHtml(u.batch || '')}" title="Inspect Profile">${u.name.charAt(0).toUpperCase()}</div>
+                    <div class="pending-card-avatar admin-user-clickable" data-user-id="${escapeHtml(u.id)}" data-user-name="${this.escapeHtml(u.name)}" data-user-email="${this.escapeHtml(u.email)}" data-user-roll="${this.escapeHtml(u.roll_number || '')}" data-user-batch="${this.escapeHtml(u.batch || '')}" title="Inspect Profile">${u.name ? escapeHtml(u.name.charAt(0).toUpperCase()) : 'U'}</div>
                     <div class="pending-card-meta">
-                        <span class="pending-card-name admin-user-clickable" data-user-id="${u.id}" data-user-name="${this.escapeHtml(u.name)}" data-user-email="${this.escapeHtml(u.email)}" data-user-roll="${this.escapeHtml(u.roll_number || '')}" data-user-batch="${this.escapeHtml(u.batch || '')}" title="Inspect Profile">${this.escapeHtml(u.name)}</span>
+                        <span class="pending-card-name admin-user-clickable" data-user-id="${escapeHtml(u.id)}" data-user-name="${this.escapeHtml(u.name)}" data-user-email="${this.escapeHtml(u.email)}" data-user-roll="${this.escapeHtml(u.roll_number || '')}" data-user-batch="${this.escapeHtml(u.batch || '')}" title="Inspect Profile">${this.escapeHtml(u.name)}</span>
                         <span class="pending-card-email">${this.escapeHtml(u.email)}</span>
                     </div>
                 </div>
                 <div class="pending-card-extra">
-                    <span><i data-lucide="calendar" style="width:11px; height:11px; vertical-align:middle;"></i> ${dt.dateStr}${dt.timeStr ? ` • ${dt.timeStr}` : ''}</span>
+                    <span><i data-lucide="calendar" style="width:11px; height:11px; vertical-align:middle;"></i> ${escapeHtml(dt.dateStr)}${dt.timeStr ? ` • ${escapeHtml(dt.timeStr)}` : ''}</span>
                     ${u.roll_number ? `<span>• Roll: ${this.escapeHtml(u.roll_number)}</span>` : ''}
                     <span>• Branch: ${this.escapeHtml(getStudentBranch(u.roll_number, u.batch))}</span>
                 </div>
                 <div class="pending-card-actions">
-                    <button class="btn-approve" onclick="window.adminApprove('${u.id}')">
+                    <button class="btn-approve" data-action="approve" data-user-id="${escapeHtml(u.id)}">
                         <i data-lucide="check"></i> Approve
                     </button>
-                    <button class="btn-reject" onclick="window.adminReject('${u.id}')">
+                    <button class="btn-reject" data-action="reject" data-user-id="${escapeHtml(u.id)}">
                         <i data-lucide="x"></i> Reject
                     </button>
                 </div>
@@ -7536,8 +7376,8 @@ class AdminManager {
         const totalText = `${this.users.length} USERS`;
         if (totalBadge && totalBadge.innerText !== totalText) totalBadge.innerText = totalText;
 
-        const allAdmins = this.users.filter(u => u.isMasterAdmin || u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username));
-        const allMembers = this.users.filter(u => !(u.isMasterAdmin || u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username)));
+        const allAdmins = this.users.filter(u => u.isMasterAdmin || u.role === 'ADMIN');
+        const allMembers = this.users.filter(u => !(u.isMasterAdmin || u.role === 'ADMIN'));
 
         const pillAll = document.getElementById('pill-filter-all');
         const pillAdmin = document.getElementById('pill-filter-admin');
@@ -7557,19 +7397,19 @@ class AdminManager {
         this.lastUsersTableFingerprint = usersFingerprint;
 
         // Separate current filtered users into Admins and Members
-        const adminUsers = usersList.filter(u => u.isMasterAdmin || u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username));
-        const memberUsers = usersList.filter(u => !(u.isMasterAdmin || u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username)));
+        const adminUsers = usersList.filter(u => u.isMasterAdmin || u.role === 'ADMIN');
+        const memberUsers = usersList.filter(u => !(u.isMasterAdmin || u.role === 'ADMIN'));
 
         const renderRow = (u: AdminUserRecord): string => {
             const statusClass = u.status === 'APPROVED' ? 'approved' : u.status === 'PENDING' ? 'pending' : 'rejected';
-            const isMaster = u.isMasterAdmin || u.role === 'ADMIN' || ModalManager.isDesignatedAdminUser(u.email, u.name, u.username);
+            const isMaster = Boolean(u.isMasterAdmin);
 
             // Format registration date & time in 2 separate lines
             const dt = DashboardManager.formatLogDateTime(u.created_at);
             const dateHtml = `
                 <div class="user-reg-date-wrap">
-                    <span class="user-reg-date">${dt.dateStr}</span>
-                    <span class="user-reg-time"><i data-lucide="clock"></i>${dt.timeStr || '--:--'}</span>
+                    <span class="user-reg-date">${escapeHtml(dt.dateStr)}</span>
+                    <span class="user-reg-time"><i data-lucide="clock"></i>${escapeHtml(dt.timeStr || '--:--')}</span>
                 </div>
             `;
 
@@ -7595,15 +7435,12 @@ class AdminManager {
             let actionsHtml = '';
             if (isMaster) {
                 actionsHtml = `<span class="badge-perm-admin"><i data-lucide="shield-check"></i> ROOT ACCESS</span>`;
-            } else if (u.email.toLowerCase() === 'mahakkatahara.mk@gmail.com') {
-                const deleteBtn = `<button class="btn-table-action btn-del" onclick="window.adminDeleteUser('${u.id}', '${this.escapeHtml(u.name)}')" title="Permanently Delete User"><i data-lucide="trash-2"></i></button>`;
-                actionsHtml = `<span class="badge-member-only">MEMBER ONLY</span> ${deleteBtn}`;
             } else {
                 const roleBtn = u.role === 'ADMIN'
-                    ? `<button class="btn-table-action btn-demote" onclick="window.adminSetRole('${u.id}', 'MEMBER')" title="Demote to Member"><i data-lucide="shield-off"></i> Demote</button>`
-                    : `<button class="btn-table-action btn-make-admin" onclick="window.adminSetRole('${u.id}', 'ADMIN')" title="Promote to Admin"><i data-lucide="shield-alert"></i> Make Admin</button>`;
+                    ? `<button class="btn-table-action btn-demote" data-action="set-role" data-user-id="${escapeHtml(u.id)}" data-role="MEMBER" title="Demote to Member"><i data-lucide="shield-off"></i> Demote</button>`
+                    : `<button class="btn-table-action btn-make-admin" data-action="set-role" data-user-id="${escapeHtml(u.id)}" data-role="ADMIN" title="Promote to Admin"><i data-lucide="shield-alert"></i> Make Admin</button>`;
 
-                const deleteBtn = `<button class="btn-table-action btn-del" onclick="window.adminDeleteUser('${u.id}', '${this.escapeHtml(u.name)}')" title="Permanently Delete User"><i data-lucide="trash-2"></i></button>`;
+                const deleteBtn = `<button class="btn-table-action btn-del" data-action="delete" data-user-id="${escapeHtml(u.id)}" data-user-name="${this.escapeHtml(u.name)}" title="Permanently Delete User"><i data-lucide="trash-2"></i></button>`;
 
                 actionsHtml = `${roleBtn} ${deleteBtn}`;
             }
@@ -7955,7 +7792,7 @@ class AdminManager {
         const displayEmail = matchedUser?.email || data.email || (data.roll ? `${data.roll}@mail.jiit.ac.in` : '—');
         const displayRoll = matchedUser?.roll_number || data.roll || (displayEmail.includes('@') && !displayEmail.startsWith('—') ? displayEmail.split('@')[0] : '—');
         const displayBranch = getStudentBranch(displayRoll, matchedUser?.batch || data.batch);
-        const displayRole = matchedUser?.role || (ModalManager.isDesignatedAdminUser(displayEmail, displayName) ? 'ADMIN' : 'MEMBER');
+        const displayRole = matchedUser?.role || 'MEMBER';
         const displayStatus = matchedUser?.status || 'ACTIVE';
 
         // Avatar
@@ -8308,7 +8145,7 @@ class AdminManager {
             const actorEmail = log.users?.email || '';
 
             return `
-                <div class="audit-log-card ${cardCat}" onclick="window.openAuditDetail('${log.id}')" title="Click to view raw event telemetry metadata">
+                <div class="audit-log-card ${cardCat}" data-log-id="${escapeHtml(log.id)}" title="Click to view raw event telemetry metadata">
                     <div class="audit-left-col">
                         <span class="audit-action-badge ${badgeClass}">
                             <i data-lucide="${iconName}" style="width: 11px; height: 11px;"></i>
@@ -8426,11 +8263,7 @@ class AdminManager {
     }
 
     static escapeHtml(str: string): string {
-        return String(str || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+        return escapeHtml(str);
     }
 }
 
@@ -8517,14 +8350,6 @@ declare global {
     interface Window {
         bg3D?: Background3D;
         dashboard?: DashboardManager;
-        adminApprove?: (id: string) => void;
-        adminReject?: (id: string) => void;
-        adminSetRole?: (id: string, role: 'ADMIN' | 'MEMBER') => void;
-        adminDeleteUser?: (id: string, name: string) => void;
-        adminDeleteItem?: (id: string, name: string) => void;
-        adminApproveHardware?: (id: string) => void;
-        adminRejectHardware?: (id: string) => void;
-        openAuditDetail?: (id: string) => void;
         openBulkReturnModal?: () => void;
         openPasswordResetModal?: () => void;
     }
