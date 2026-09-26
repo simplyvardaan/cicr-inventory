@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "seed:inventory": "ts-node --project tsconfig.json src/scripts/seed-inventory.ts",
     "purge-logs": "node src/scripts/purge-all-logs.cjs",
-    "test": "node --test \"test/*.test.cjs\""
+    "test": "node --test --test-concurrency=1 \"test/*.test.cjs\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

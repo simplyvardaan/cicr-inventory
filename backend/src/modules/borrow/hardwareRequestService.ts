@@ -1310,7 +1310,7 @@ export const approveHardwareRequest = async (
         action: 'Hardware Approved',
         user_id: isUuid(req.userId) ? req.userId : null,
         item_id: isUuid(req.itemId) ? req.itemId : null,
-        description: `Admin ${adminName || 'Vardaan Saxena'} approved hardware issue of ${req.quantity} units of "${item.name}" for ${req.borrowerName}.`
+        description: `Admin ${adminName || process.env.DEFAULT_ADMIN_NAME || 'Lab Administrator'} approved hardware issue of ${req.quantity} units of "${item.name}" for ${req.borrowerName}.`
       }
     ]);
   } catch {}

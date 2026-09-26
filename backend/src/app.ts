@@ -32,12 +32,17 @@ app.use((_req, res, next) => {
   next();
 });
 
+const configuredOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
+  : [];
+
 const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:3000',
   'https://cicr-inventory.vercel.app',
   'https://cicr-inventory-backend.onrender.com',
   process.env.FRONTEND_URL,
+  ...configuredOrigins
 ].filter(Boolean) as string[];
 
 app.use(cors({

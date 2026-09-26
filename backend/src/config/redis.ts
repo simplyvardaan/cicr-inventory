@@ -26,7 +26,9 @@ const normalizeRedisUrl = (raw: string | undefined): string => {
 };
 
 export const REDIS_URL = normalizeRedisUrl(process.env.REDIS_URL);
-export const isRedisEnabled = REDIS_URL.length > 0;
+const isTestRun = process.env.NODE_ENV === 'test' || process.argv.some(a => typeof a === 'string' && a.includes('test'));
+export const isRedisEnabled = REDIS_URL.length > 0 && !isTestRun && process.env.DISABLE_REDIS !== 'true';
+
 
 // ---------------------------------------------------------------- in-memory
 interface MemoryEntry {
@@ -227,7 +229,15 @@ const RELEASE_LUA =
 let lastLockWarningTime = 0;
 export const acquireLock = async (key: string, ttlMs: number): Promise<LockHandle> => {
   const token = crypto.randomUUID();
-  if (!redisClient) return { acquired: false, token, reason: 'redis-unavailable' };
+  if (!redisClient) {
+    const existing = await memoryGet(key);
+    if (existing !== null) {
+      return { acquired: false, token, reason: 'lock-held' };
+    }
+    const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+    await memorySet(key, token, ttlSeconds);
+    return { acquired: true, token };
+  }
   try {
     const res = await redisClient.set(key, token, 'PX', Math.max(1000, ttlMs), 'NX');
     return { acquired: res === 'OK', token };
@@ -237,16 +247,31 @@ export const acquireLock = async (key: string, ttlMs: number): Promise<LockHandl
       console.warn('[REDIS] acquireLock failed (in-memory fallback active):', err?.message);
       lastLockWarningTime = now;
     }
-    return { acquired: false, token, reason: 'redis-error' };
+    const existing = await memoryGet(key);
+    if (existing !== null) {
+      return { acquired: false, token, reason: 'lock-held' };
+    }
+    const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
+    await memorySet(key, token, ttlSeconds);
+    return { acquired: true, token };
   }
 };
 
 export const releaseLock = async (key: string, token: string): Promise<void> => {
-  if (!redisClient) return;
+  if (!redisClient) {
+    const existing = await memoryGet(key);
+    if (existing === token) {
+      await memoryDel(key);
+    }
+    return;
+  }
   try {
     await redisClient.eval(RELEASE_LUA, 1, key, token);
   } catch {
-    /* ignore release failures */
+    const existing = await memoryGet(key);
+    if (existing === token) {
+      await memoryDel(key);
+    }
   }
 };
 

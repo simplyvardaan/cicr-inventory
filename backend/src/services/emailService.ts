@@ -12,18 +12,14 @@ try {
 dotenv.config();
 
 // Verified sender + default admin recipients
-export const SENDER_NAME = 'CICR Inventory';
-export const DEFAULT_TEST_RECIPIENT_EMAIL = 'cicrinventory@gmail.com';
-export const DEFAULT_SENDER_EMAIL = 'cicrinventory@gmail.com';
-export const NO_REPLY_HEADER = '"CICR Inventory" <cicrinventory@gmail.com>';
-export const SUPER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-  '992401210050@mail.jiit.ac.in', // Gunjan Pal
-  '992401030123@mail.jiit.ac.in', // Dhruvi Gupta
-  '992401030154@mail.jiit.ac.in'  // Aryan Varshney
-];
+import { SUPER_ADMIN_EMAILS, MASTER_ADMIN_EMAIL } from '../modules/auth/userApprovalService';
+
+export const SENDER_NAME = process.env.SMTP_SENDER_NAME || 'CICR Inventory';
+export const DEFAULT_TEST_RECIPIENT_EMAIL = process.env.TEST_RECIPIENT_EMAIL || 'cicrinventory@gmail.com';
+export const DEFAULT_SENDER_EMAIL = process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com';
+export const NO_REPLY_HEADER = process.env.SMTP_NO_REPLY_HEADER || `"${SENDER_NAME}" <${DEFAULT_SENDER_EMAIL}>`;
+
+export { SUPER_ADMIN_EMAILS };
 
 export const getAdminNotificationRecipients = async (): Promise<string[]> => {
   const adminSet = new Set<string>(SUPER_ADMIN_EMAILS.map((e) => e.toLowerCase()));
@@ -42,29 +38,25 @@ export const getAdminNotificationRecipients = async (): Promise<string[]> => {
 
 export const getFromAddress = () => {
   const envFrom = process.env.SMTP_FROM;
-  if (envFrom && !envFrom.toLowerCase().includes('kushagra')) {
+  if (envFrom) {
     return envFrom;
   }
-  return `"${SENDER_NAME}" <cicrinventory@gmail.com>`;
+  return `"${SENDER_NAME}" <${DEFAULT_SENDER_EMAIL}>`;
 };
 
 export const getReplyToAddress = () => {
   const envReply = process.env.SMTP_REPLY_TO;
-  if (envReply && !envReply.toLowerCase().includes('kushagra')) {
+  if (envReply) {
     return envReply;
   }
   return NO_REPLY_HEADER;
 };
 
-export const DEFAULT_SMTP_USER = process.env.SMTP_USER || 'cicrinventory@gmail.com';
+export const DEFAULT_SMTP_USER = process.env.SMTP_USER || DEFAULT_SENDER_EMAIL;
 export const DEFAULT_SMTP_PASS = process.env.SMTP_PASS || '';
 
 export const getSmtpUser = (): string => {
-  const envUser = process.env.SMTP_USER;
-  if (envUser && !envUser.toLowerCase().includes('kushagra')) {
-    return envUser;
-  }
-  return DEFAULT_SMTP_USER;
+  return process.env.SMTP_USER || DEFAULT_SMTP_USER;
 };
 
 export const getSmtpPass = (): string => {
@@ -124,7 +116,7 @@ export const getTransporter = () => {
 };
 
 // Testing override target per user requirement
-export const TESTING_TEST_EMAIL = 'vardaansaxena096@gmail.com';
+export const TESTING_TEST_EMAIL = process.env.TESTING_TEST_EMAIL || DEFAULT_TEST_RECIPIENT_EMAIL;
 
 // Transporter proxy with hard safety suppression switch and testing routing override
 const transporter = {
@@ -2067,8 +2059,8 @@ export const sendLoginSecurityAlertEmail = async (
       from: getFromAddress(),
       replyTo: getReplyToAddress(),
       to: recipients.join(', '),
-      ...(context.userEmail.toLowerCase() !== 'vardaansaxena096@gmail.com'
-        ? { bcc: 'vardaansaxena096@gmail.com' }
+      ...(context.userEmail.toLowerCase() !== MASTER_ADMIN_EMAIL
+        ? (process.env.SECURITY_AUDIT_BCC ? { bcc: process.env.SECURITY_AUDIT_BCC } : (MASTER_ADMIN_EMAIL ? { bcc: MASTER_ADMIN_EMAIL } : {}))
         : {}),
       subject: `[CICR Security Alert] New Login Detected: ${context.userName}`,
       headers: buildHeaders('login-security-alert', 'normal'),

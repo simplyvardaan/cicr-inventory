@@ -619,10 +619,7 @@ class DatabaseManager {
             try {
                 const parsed = JSON.parse(storedRequests);
                 requests = (parsed || []).filter((r: any) =>
-                    r && r.purpose &&
-                    r.id !== 'req_1789341756703_7d6b6494' &&
-                    !r.purpose.toLowerCase().includes('testing') &&
-                    !r.purpose.toLowerCase().includes('robo soccer')
+                    Boolean(r && (r.id || r.itemId || r.itemName))
                 );
                 localStorage.setItem('cicr_requests', JSON.stringify(requests));
             } catch {
@@ -695,35 +692,48 @@ class DatabaseManager {
 
                     const existingItem = inventory.find(i => String(i.id) === String(item.id));
 
-                    // Map server active loans for this item
-                    const itemActiveLoans: BorrowRecord[] = dbActiveLoans
-                        .filter((rec: any) => String(rec.inventory_id || rec.inventory?.id) === String(item.id))
-                        .map((rec: any) => ({
-                            id: rec.id,
-                            name: rec.borrower_name || rec.users?.name || 'Member',
-                            userName: rec.borrower_name || rec.users?.name || 'Member',
-                            borrowerName: rec.borrower_name || rec.users?.name || 'Member',
-                            roll: rec.roll_number || rec.users?.roll_number || '',
-                            userRoll: rec.roll_number || rec.users?.roll_number || '',
-                            email: rec.borrower_email || rec.users?.email || '',
-                            userEmail: rec.borrower_email || rec.users?.email || '',
-                            userId: rec.user_id,
-                            qty: Number(rec.quantity) || 1,
-                            purpose: rec.purpose || 'Active Loan',
-                            date: rec.borrowed_at || new Date().toISOString(),
-                            dueDate: rec.due_date || null,
-                            status: rec.status,
-                            returned: rec.status === 'RETURNED'
-                        }));
+                    // Map server active loans for this item (strictly active loans only)
+                    const itemActiveLoans: BorrowRecord[] = availableQty >= totalQty ? [] : dbActiveLoans
+                        .filter((rec: any) =>
+                            String(rec.inventory_id || rec.inventory?.id) === String(item.id) &&
+                            rec.status !== 'RETURNED' &&
+                            !rec.returned &&
+                            !rec.returned_at
+                        )
+                        .map((rec: any) => {
+                            const isPendingRet = (requests || []).some(
+                                (r: any) => r.status === 'PENDING' && r.type === 'RETURN' && (String(r.borrowId || (r as any).borrow_id) === String(rec.id) || (String(r.itemId || (r as any).inventory_id) === String(item.id) && ModalManager.isUserRequestMatch(r)))
+                            );
+                            return {
+                                id: rec.id,
+                                name: rec.borrower_name || rec.users?.name || 'Member',
+                                userName: rec.borrower_name || rec.users?.name || 'Member',
+                                borrowerName: rec.borrower_name || rec.users?.name || 'Member',
+                                roll: rec.roll_number || rec.users?.roll_number || '',
+                                userRoll: rec.roll_number || rec.users?.roll_number || '',
+                                email: rec.borrower_email || rec.users?.email || '',
+                                userEmail: rec.borrower_email || rec.users?.email || '',
+                                userId: rec.user_id,
+                                qty: Number(rec.quantity) || 1,
+                                purpose: rec.purpose || 'Active Loan',
+                                date: rec.borrowed_at || new Date().toISOString(),
+                                dueDate: rec.due_date || null,
+                                status: isPendingRet ? 'RETURN_REQUESTED' : rec.status,
+                                returned: false
+                            };
+                        });
 
-                    const existingLoans = existingItem?.borrowedBy || [];
+                    const existingLoans = availableQty >= totalQty ? [] : (existingItem?.borrowedBy || []).filter(
+                        (ex: any) => !ex.returned && ex.status !== 'RETURNED' && ex.status !== 'REJECTED'
+                    );
                     const mergedBorrowedBy = [...itemActiveLoans];
                     for (const ex of existingLoans) {
-                        if (availableQty >= totalQty) {
-                            ex.returned = true;
-                            ex.status = 'RETURNED';
-                        }
-                        if (!mergedBorrowedBy.some(m => m.id === ex.id)) {
+                        const existingMatch = mergedBorrowedBy.find(m => m.id === ex.id);
+                        if (existingMatch) {
+                            if ((ex as any).status === 'RETURN_REQUESTED') {
+                                (existingMatch as any).status = 'RETURN_REQUESTED';
+                            }
+                        } else {
                             mergedBorrowedBy.push(ex);
                         }
                     }
@@ -751,7 +761,7 @@ class DatabaseManager {
                 if ((window as any).isUserScrolling) {
                     (window as any)._pendingDashboardRender = true;
                 } else {
-                    window.dashboard.renderInventory();
+                    window.dashboard.renderInventory(true);
                 }
             }
         } catch (err) {
@@ -818,7 +828,6 @@ class DatabaseManager {
         const userReqMap = new Map<string, any>();
         const dismissedRaw = localStorage.getItem('cicr_dismissed_requests');
         const dismissedSet: Set<string> = dismissedRaw ? new Set(JSON.parse(dismissedRaw)) : new Set();
-        dismissedSet.add('req_1789341756703_7d6b6494');
 
         const addReq = (r: any) => {
             if (!r) return;
@@ -1887,7 +1896,10 @@ class DashboardManager {
             return true;
         });
 
-        const currentFingerprint = `${role}_${this.activeCategory}_${this.activeStockFilter}_${this.searchQuery}_` +
+        const cartKey = (typeof CartManager !== 'undefined')
+            ? CartManager.getItems().map((c: any) => `${c.id}:${c.quantity}`).join(',')
+            : '';
+        const currentFingerprint = `${role}_${this.activeCategory}_${this.activeStockFilter}_${this.searchQuery}_${cartKey}_` +
             filtered.map(i => `${i.id}_${i.availableQuantity}_${i.quantity}_${i.name}_${i.location}_${(i.borrowedBy || []).map((b: any) => `${b.id}:${b.status}:${b.qty}`).join(',')}`).join('|');
 
         if (!force && this.lastRenderedFingerprint === currentFingerprint && this.inventoryGrid.children.length === filtered.length) {
@@ -2003,10 +2015,17 @@ class DashboardManager {
             </button>
         ` : '';
 
-        const myLoans = (item.borrowedBy || []).filter((r: any) => !r.returned && (r as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(r));
+        const totalBorrowedUnits = Math.max(0, totalQty - available);
+        const cleanBorrowedBy = totalBorrowedUnits > 0
+            ? (item.borrowedBy || []).filter((r: any) => !r.returned && (r as any).status !== 'RETURNED' && (r as any).status !== 'REJECTED')
+            : [];
+        const myLoans = cleanBorrowedBy.filter((r: any) => (r as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(r));
         const myLoanTotal = myLoans.reduce((sum: number, r: any) => sum + (Number(r.qty) || 0), 0);
         const myPendingReturn = myLoans.some((r: any) => (r as any).status === 'RETURN_REQUESTED');
-        const myLoanBadgeHtml = myLoanTotal > 0 ? `
+
+        let loanBadgeHtml = '';
+        if (myLoanTotal > 0) {
+            loanBadgeHtml = `
             <div class="card-loan-action-pill" style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; background: ${myPendingReturn ? 'rgba(245, 158, 11, 0.12)' : 'rgba(99, 102, 241, 0.08)'}; border: 1px solid ${myPendingReturn ? 'rgba(245, 158, 11, 0.35)' : 'rgba(99, 102, 241, 0.28)'}; border-radius: 6px; padding: 5px 10px; font-size: 11px; color: ${myPendingReturn ? '#f59e0b' : '#818cf8'}; cursor: pointer; transition: all 0.2s ease;">
                 <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
                     ${getFastIconSvg(myPendingReturn ? 'clock' : 'package-check', 12)} ${myPendingReturn ? `Return Pending (${myLoanTotal} issued)` : `You have ${myLoanTotal} issued`}
@@ -2015,7 +2034,19 @@ class DashboardManager {
                     ${myPendingReturn ? 'View Status' : 'Return'} ${getFastIconSvg(myPendingReturn ? 'arrow-right' : 'corner-up-left', 11)}
                 </span>
             </div>
-        ` : '';
+            `;
+        } else if (isAdmin && totalBorrowedUnits > 0) {
+            loanBadgeHtml = `
+            <div class="card-admin-loan-pill" style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; font-size: 11px; cursor: pointer; transition: all 0.2s ease;" title="Click to view active borrowers & restock">
+                <span style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
+                    ${getFastIconSvg('users', 12)} ${totalBorrowedUnits} unit${totalBorrowedUnits > 1 ? 's' : ''} on active loan
+                </span>
+                <span style="font-weight: 700; text-decoration: underline; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 3px;">
+                    Inspect / Restock ${getFastIconSvg('arrow-right', 11)}
+                </span>
+            </div>
+            `;
+        }
 
         // Cart status for this item
         const inCart = typeof CartManager !== 'undefined' && CartManager.hasItem(item.id);
@@ -2039,7 +2070,7 @@ class DashboardManager {
             <h3 class="card-title ${titleSizeClass}" title="${AdminManager.escapeHtml(itemName)}">${AdminManager.escapeHtml(itemName)}</h3>
             <p class="card-desc" title="${AdminManager.escapeHtml(item.specs)}">${AdminManager.escapeHtml(shortDesc)}</p>
             ${miniTagsHtml}
-            ${myLoanBadgeHtml}
+            ${loanBadgeHtml}
             <div class="card-footer">
                 <div class="footer-info" title="${AdminManager.escapeHtml(item.location)}">
                     <span class="info-title">Location</span>
@@ -2095,9 +2126,18 @@ class DashboardManager {
                     } else {
                         const activeLoan = myLoans.find((r: any) => (r as any).status !== 'RETURN_REQUESTED') || myLoans[0];
                         if (activeLoan) {
-                            ModalManager.openReturnModal(activeLoan, item, item.borrowedBy.indexOf(activeLoan));
+                            ModalManager.openReturnModal(activeLoan, item, (item.borrowedBy || []).indexOf(activeLoan));
                         }
                     }
+                });
+            }
+        } else if (isAdmin && totalBorrowedUnits > 0) {
+            const adminPill = card.querySelector('.card-admin-loan-pill');
+            if (adminPill) {
+                adminPill.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    ModalManager.openDetailModal(item);
                 });
             }
         }
@@ -2242,7 +2282,7 @@ class CartManager {
 
         this.saveToStorage();
         if (window.dashboard) {
-            window.dashboard.renderInventory();
+            window.dashboard.renderInventory(true);
         }
         this.pulseFloatingCart();
     }
@@ -2255,7 +2295,7 @@ class CartManager {
             ToastManager.show('Removed from Cart', `"${removed.name}" was removed from your cart.`, 'info');
             this.renderCartModal();
             if (window.dashboard) {
-                window.dashboard.renderInventory();
+                window.dashboard.renderInventory(true);
             }
         }
     }
@@ -2273,7 +2313,7 @@ class CartManager {
         this.saveToStorage();
         this.renderCartModal();
         if (window.dashboard) {
-            window.dashboard.renderInventory();
+            window.dashboard.renderInventory(true);
         }
     }
 
@@ -2282,7 +2322,7 @@ class CartManager {
         this.saveToStorage();
         this.renderCartModal();
         if (window.dashboard) {
-            window.dashboard.renderInventory();
+            window.dashboard.renderInventory(true);
         }
     }
 
@@ -2585,12 +2625,12 @@ class CartManager {
 
         const storedUser = JSON.parse(localStorage.getItem('cicr_user') || '{}');
         const borrowerName = storedUser.name || storedUser.username || localStorage.getItem('cicr_auth') || 'Member';
-        const userEmail = storedUser.email || (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : 'student@mail.jiit.ac.in');
         let rollNum = storedUser.roll_number || storedUser.roll || '';
         if (!rollNum && storedUser.email) {
             const m = String(storedUser.email).match(/^([0-9]{6,12})@/);
             if (m) rollNum = m[1];
         }
+        const userEmail = storedUser.email || (rollNum ? `${rollNum}@mail.jiit.ac.in` : (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : ''));
 
         const submitBtn = document.getElementById('btn-submit-cart-checkout') as HTMLButtonElement | null;
         this.isCheckingOut = true;
@@ -2911,7 +2951,7 @@ class ModalManager {
         const btnCalendar = document.getElementById('btn-calendar-picker');
         const calendarWrapper = document.getElementById('borrow-calendar-wrapper');
         const durationBadge = document.getElementById('borrow-duration-badge');
-        const presetPills = document.querySelectorAll('.date-preset-pill');
+        const presetPills = document.querySelectorAll('#borrow-form-modal .date-preset-pill');
 
         const updateDurationBadge = (dateVal: string) => {
             if (!durationBadge || !dateVal) return;
@@ -3072,11 +3112,22 @@ class ModalManager {
         const userId = storedUser.id || storedUser.userId || '';
         const recUserId = (rec as any).userId || (rec as any).user_id || '';
 
-        // 1. Direct User ID match (most authoritative)
-        if (userId && recUserId && String(userId) === String(recUserId)) return true;
+        const rRoll = ((rec as any).roll || (rec as any).rollNumber || (rec as any).roll_number || (rec as any).borrower_roll || (rec as any).userRoll || '').toLowerCase().trim();
+        const rName = ((rec as any).userName || (rec as any).borrowerName || (rec as any).borrower_name || rec.name || '').toLowerCase().trim();
+        const isGenericName = (n: string) => !n || ['member', 'student', 'user', 'admin', 'borrower', 'guest', 'student borrower'].includes(n) || n.length < 3;
+
+        // 1. Direct User ID match (authoritative unless loan explicitly specifies another recipient)
+        if (userId && recUserId && String(userId) === String(recUserId)) {
+            if (rRoll && userRoll && rRoll !== userRoll) {
+                // Different roll number -> Not this user
+            } else if (!isGenericName(rName) && !isGenericName(userName) && rName !== userName && (!authName || rName !== authName)) {
+                // Different borrower name -> Not this user
+            } else {
+                return true;
+            }
+        }
 
         // 2. Exact Roll Number match
-        const rRoll = ((rec as any).roll || (rec as any).rollNumber || (rec as any).roll_number || (rec as any).borrower_roll || (rec as any).userRoll || '').toLowerCase().trim();
         if (userRoll && rRoll && userRoll === rRoll) return true;
         if (userEmail && rRoll && (userEmail.startsWith(`${rRoll}@`) || userEmail === `${rRoll}@mail.jiit.ac.in`)) return true;
 
@@ -3085,8 +3136,6 @@ class ModalManager {
         if (userEmail && recEmail && userEmail === recEmail) return true;
 
         // 4. Exact Name match (guarding against generic placeholders like "member", "student", "user", "admin")
-        const rName = ((rec as any).userName || (rec as any).borrowerName || (rec as any).borrower_name || rec.name || '').toLowerCase().trim();
-        const isGenericName = (n: string) => !n || ['member', 'student', 'user', 'admin', 'borrower', 'guest'].includes(n) || n.length < 3;
         if (!isGenericName(userName) && !isGenericName(rName) && userName === rName) return true;
         if (!isGenericName(authName) && !isGenericName(rName) && authName === rName) return true;
 
@@ -3104,11 +3153,22 @@ class ModalManager {
         const userId = storedUser.id || storedUser.userId || '';
         const reqUserId = req.userId || req.user_id || '';
 
-        // 1. Direct User ID match (most authoritative)
-        if (userId && reqUserId && String(userId) === String(reqUserId)) return true;
+        const rRoll = (req.roll || req.rollNumber || req.roll_number || req.borrower_roll || req.userRoll || '').toLowerCase().trim();
+        const rName = (req.name || req.borrowerName || req.borrower_name || req.userName || '').toLowerCase().trim();
+        const isGenericName = (n: string) => !n || ['member', 'student', 'user', 'admin', 'borrower', 'guest', 'student borrower'].includes(n) || n.length < 3;
+
+        // 1. Direct User ID match (authoritative unless explicitly another requester)
+        if (userId && reqUserId && String(userId) === String(reqUserId)) {
+            if (rRoll && userRoll && rRoll !== userRoll) {
+                // Different roll number -> Not this user
+            } else if (!isGenericName(rName) && !isGenericName(userName) && rName !== userName && (!authName || rName !== authName)) {
+                // Different requester name -> Not this user
+            } else {
+                return true;
+            }
+        }
 
         // 2. Exact Roll Number match
-        const rRoll = (req.roll || req.rollNumber || req.roll_number || req.borrower_roll || req.userRoll || '').toLowerCase().trim();
         if (userRoll && rRoll && userRoll === rRoll) return true;
         if (userEmail && rRoll && (userEmail.startsWith(`${rRoll}@`) || userEmail === `${rRoll}@mail.jiit.ac.in`)) return true;
 
@@ -3117,8 +3177,6 @@ class ModalManager {
         if (userEmail && rEmail && userEmail === rEmail) return true;
 
         // 4. Exact Name match (guarding against generic placeholders like "member", "student", "user", "admin")
-        const rName = (req.name || req.borrowerName || req.borrower_name || req.userName || '').toLowerCase().trim();
-        const isGenericName = (n: string) => !n || ['member', 'student', 'user', 'admin', 'borrower', 'guest'].includes(n) || n.length < 3;
         if (!isGenericName(userName) && !isGenericName(rName) && userName === rName) return true;
         if (!isGenericName(authName) && !isGenericName(rName) && authName === rName) return true;
 
@@ -3140,6 +3198,34 @@ class ModalManager {
         selectedItem = null;
     }
 
+    public static readonly DESIGNATED_ADMIN_EMAILS: ReadonlySet<string> = new Set([
+        'vardaansaxena096@gmail.com',
+        'cicrinventory@gmail.com',
+        '992501030399@mail.jiit.ac.in', // Vardaan Saxena
+        '992401210050@mail.jiit.ac.in', // Gunjan Pal
+        '992401030123@mail.jiit.ac.in', // Dhruvi Gupta
+        '992401030154@mail.jiit.ac.in'  // Aryan Varshney
+    ]);
+
+    public static readonly DESIGNATED_ADMIN_ROLLS: ReadonlySet<string> = new Set([
+        '992501030399', // Vardaan Saxena
+        '992401210050', // Gunjan Pal
+        '992401030123', // Dhruvi Gupta
+        '992401030154'  // Aryan Varshney
+    ]);
+
+    public static readonly DESIGNATED_ADMIN_NAMES: ReadonlySet<string> = new Set([
+        'vardaan saxena',
+        'gunjan pal',
+        'dhruvi gupta',
+        'aryan varshney'
+    ]);
+
+    public static readonly DESIGNATED_ADMIN_USERNAMES: ReadonlySet<string> = new Set([
+        'srvkiller09',
+        ADMIN_USERNAME.toLowerCase()
+    ]);
+
     public static isDesignatedAdminUser(email?: string | null, name?: string | null, username?: string | null): boolean {
         const normEmail = (email || '').toLowerCase().trim();
         const normName = (name || '').toLowerCase().trim();
@@ -3148,59 +3234,39 @@ class ModalManager {
         // 0. Explicit Member Restriction: Divyam Jain is strictly MEMBER, never Admin
         if (
             normEmail === '992501210090@mail.jiit.ac.in' ||
-            normEmail.includes('992501210090') ||
-            normEmail.includes('divyam') ||
-            normName.includes('divyam') ||
-            normUser.includes('divyam')
+            normEmail.startsWith('992501210090@') ||
+            normName === 'divyam jain' ||
+            normUser === 'divyam jain' ||
+            normUser === '992501210090'
         ) {
             return false;
         }
 
-        // 1. Gunjan Pal
-        if (
-            normEmail === '992401210050@mail.jiit.ac.in' ||
-            normEmail.includes('992401210050') ||
-            normEmail.includes('gunjan') ||
-            normName.includes('gunjan') ||
-            normUser.includes('gunjan')
-        ) {
+        // 1. Exact Email Allowlist Match
+        if (normEmail && this.DESIGNATED_ADMIN_EMAILS.has(normEmail)) {
             return true;
         }
 
-        // 2. Dhruvi Gupta
-        if (
-            normEmail === '992401030123@mail.jiit.ac.in' ||
-            normEmail.includes('992401030123') ||
-            normEmail.includes('dhruvi') ||
-            normName.includes('dhruvi') ||
-            normUser.includes('dhruvi')
-        ) {
+        // 2. Email starting with exact designated roll number (e.g. 992401030154@...)
+        if (normEmail && normEmail.includes('@')) {
+            const rollPart = normEmail.split('@')[0];
+            if (this.DESIGNATED_ADMIN_ROLLS.has(rollPart)) {
+                return true;
+            }
+        }
+
+        // 3. Exact Roll Number Match
+        if (this.DESIGNATED_ADMIN_ROLLS.has(normEmail) || this.DESIGNATED_ADMIN_ROLLS.has(normUser)) {
             return true;
         }
 
-        // 3. Aryan Varshney
-        if (
-            normEmail === '992401030154@mail.jiit.ac.in' ||
-            normEmail.includes('992401030154') ||
-            normEmail.includes('aryan') ||
-            normName.includes('aryan') ||
-            normUser.includes('aryan')
-        ) {
+        // 4. Exact Username Allowlist Match
+        if (normUser && this.DESIGNATED_ADMIN_USERNAMES.has(normUser)) {
             return true;
         }
 
-        // 4. Vardaan Saxena / Master Admins
-        if (
-            normEmail === 'vardaansaxena096@gmail.com' ||
-            normEmail === 'cicrinventory@gmail.com' ||
-            normEmail === '992501030399@mail.jiit.ac.in' ||
-            normEmail.includes('992501030399') ||
-            normEmail.includes('vardaan') ||
-            normName.includes('vardaan') ||
-            normUser.includes('vardaan') ||
-            normUser === 'srvkiller09' ||
-            normUser === ADMIN_USERNAME.toLowerCase()
-        ) {
+        // 5. Exact Full Name Match (strict normalized equality, not loose substring)
+        if (normName && this.DESIGNATED_ADMIN_NAMES.has(normName)) {
             return true;
         }
 
@@ -3219,10 +3285,10 @@ class ModalManager {
                 // Explicit Member Restriction: Divyam Jain is strictly MEMBER, never Admin
                 if (
                     email === '992501210090@mail.jiit.ac.in' ||
-                    email.includes('992501210090') ||
-                    email.includes('divyam') ||
-                    name.includes('divyam') ||
-                    username.includes('divyam')
+                    email.startsWith('992501210090@') ||
+                    name === 'divyam jain' ||
+                    username === 'divyam jain' ||
+                    username === '992501210090'
                 ) {
                     return 'MEMBER';
                 }
@@ -3255,8 +3321,9 @@ class ModalManager {
 
         if (
             authName === '992501210090@mail.jiit.ac.in' ||
-            authName.includes('992501210090') ||
-            authName.includes('divyam')
+            authName.startsWith('992501210090@') ||
+            authName === 'divyam jain' ||
+            authName === '992501210090'
         ) {
             return 'MEMBER';
         }
@@ -3266,7 +3333,10 @@ class ModalManager {
         }
 
         if (storedRole === 'ADMIN') {
-            return 'ADMIN';
+            const token = localStorage.getItem('cicr_token');
+            if (token) {
+                return 'ADMIN';
+            }
         }
 
         return 'MEMBER';
@@ -3276,20 +3346,20 @@ class ModalManager {
         return this.getCurrentRole() === 'ADMIN';
     }
 
-    private static setBorrowModalMode(_mode: 'borrow' | 'request', componentName: string, available: number) {
+    private static setBorrowModalMode(mode: 'borrow' | 'request', componentName: string, available: number) {
         const modalTitle = document.getElementById('borrow-form-title');
         const subtitle = document.getElementById('borrow-form-subtitle');
         const submitBtn = document.getElementById('borrow-form-submit') as HTMLButtonElement | null;
         const qtyLimit = document.getElementById('borrow-qty-limit');
 
-        if (modalTitle) {
-            modalTitle.innerText = 'Request Component Issue';
-        }
-        if (subtitle) {
-            subtitle.innerText = `Requesting ${componentName} - Requires Admin Authorization`;
-        }
-        if (submitBtn) {
-            submitBtn.innerText = 'Submit Issue Request';
+        if (mode === 'borrow') {
+            if (modalTitle) modalTitle.innerText = '⚡ Direct Issue Component';
+            if (subtitle) subtitle.innerText = `Issuing ${componentName} directly into student custody`;
+            if (submitBtn) submitBtn.innerText = 'Confirm & Issue Hardware';
+        } else {
+            if (modalTitle) modalTitle.innerText = 'Request Component Issue';
+            if (subtitle) subtitle.innerText = `Requesting ${componentName} - Requires Admin Authorization`;
+            if (submitBtn) submitBtn.innerText = 'Submit Issue Request';
         }
         if (qtyLimit) {
             qtyLimit.innerText = `Max units available: ${available}`;
@@ -3474,10 +3544,15 @@ class ModalManager {
         badge.innerText = status.text;
         badge.className = `modal-status-badge ${status.class}`;
 
-        let myLoans = (item.borrowedBy || []).filter(rec => !rec.returned && (rec as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(rec));
+        const totalBorrowedUnits = Math.max(0, totalQty - available);
+        let cleanBorrowList = totalBorrowedUnits > 0
+            ? (item.borrowedBy || []).filter(rec => !rec.returned && (rec as any).status !== 'RETURNED' && (rec as any).status !== 'REJECTED')
+            : [];
+
+        let myLoans = cleanBorrowList.filter(rec => (rec as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(rec));
         
         // Fallback: If not found in item.borrowedBy, check ProfileViewManager.cachedHistory
-        if (myLoans.length === 0 && typeof ProfileViewManager !== 'undefined' && Array.isArray(ProfileViewManager.cachedHistory)) {
+        if (myLoans.length === 0 && totalBorrowedUnits > 0 && typeof ProfileViewManager !== 'undefined' && Array.isArray(ProfileViewManager.cachedHistory)) {
             const histMatches = ProfileViewManager.cachedHistory.filter((h: any) =>
                 String(h.inventory_id || h.inventory?.id) === String(item.id) &&
                 (h.status === 'BORROWED' || h.status === 'RETURN_REQUESTED')
@@ -3505,19 +3580,22 @@ class ModalManager {
                         });
                     }
                 }
-                myLoans = (item.borrowedBy || []).filter(rec => !rec.returned && (rec as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(rec));
+                cleanBorrowList = totalBorrowedUnits > 0
+                    ? (item.borrowedBy || []).filter(rec => !rec.returned && (rec as any).status !== 'RETURNED' && (rec as any).status !== 'REJECTED')
+                    : [];
+                myLoans = cleanBorrowList.filter(rec => (rec as any).status !== 'PENDING' && ModalManager.isUserLoanMatch(rec));
             }
         }
 
         const myActiveLoan = myLoans.find(r => (r as any).status !== 'RETURN_REQUESTED') || myLoans[0];
-        const anyActiveLoan = (item.borrowedBy || []).find(rec => !rec.returned && (rec as any).status !== 'PENDING');
-        const targetLoan = myActiveLoan || (role === 'ADMIN' ? anyActiveLoan : null);
+        const anyActiveLoan = cleanBorrowList.find(rec => (rec as any).status !== 'PENDING');
+        const targetLoan = totalBorrowedUnits > 0 ? (myActiveLoan || (role === 'ADMIN' ? anyActiveLoan : null)) : null;
 
         // Display Return Issued Component button
         if (targetLoan) {
             const isPendingReturn = (targetLoan as any).status === 'RETURN_REQUESTED';
             returnBtn.style.display = 'inline-flex';
-            if (isPendingReturn) {
+            if (isPendingReturn && role !== 'ADMIN') {
                 returnBtn.disabled = true;
                 returnBtn.style.opacity = '0.75';
                 returnBtn.style.cursor = 'not-allowed';
@@ -3527,7 +3605,9 @@ class ModalManager {
                 returnBtn.disabled = false;
                 returnBtn.style.opacity = '1';
                 returnBtn.style.cursor = 'pointer';
-                returnBtn.innerHTML = '<i data-lucide="corner-up-left"></i> Return Component';
+                returnBtn.innerHTML = role === 'ADMIN'
+                    ? '<i data-lucide="corner-up-left"></i> Restock & Return'
+                    : '<i data-lucide="corner-up-left"></i> Return Component';
                 returnBtn.onclick = () => {
                     const loanIdx = item.borrowedBy ? item.borrowedBy.indexOf(targetLoan) : 0;
                     this.openReturnModal(targetLoan, item, loanIdx >= 0 ? loanIdx : 0);
@@ -3535,6 +3615,21 @@ class ModalManager {
             }
         } else {
             returnBtn.style.display = 'none';
+        }
+
+        const directIssueBtn = document.getElementById('btn-modal-direct-issue') as HTMLButtonElement | null;
+        if (directIssueBtn) {
+            if (role === 'ADMIN' && available > 0) {
+                directIssueBtn.style.display = 'inline-flex';
+                renderLucideIcons(directIssueBtn);
+                directIssueBtn.onclick = () => {
+                    this.close('detail-modal');
+                    this.openBorrowFormModal();
+                };
+            } else {
+                directIssueBtn.style.display = 'none';
+                directIssueBtn.onclick = null;
+            }
         }
 
         const bulkReturnBtn = document.getElementById('btn-modal-bulk-return') as HTMLButtonElement | null;
@@ -3616,16 +3711,16 @@ class ModalManager {
         listContainer.innerHTML = '';
 
         const isMember = role !== 'ADMIN';
-        const visibleBorrowers = isMember
-            ? (item.borrowedBy || []).filter(rec => !rec.returned && ModalManager.isUserLoanMatch(rec))
-            : (item.borrowedBy || []).filter(rec => !rec.returned);
+        const visibleBorrowers = totalBorrowedUnits > 0
+            ? (isMember ? cleanBorrowList.filter(rec => ModalManager.isUserLoanMatch(rec)) : cleanBorrowList)
+            : [];
 
         if (visibleBorrowers.length > 0) {
             borrowersPanel.style.display = 'block';
             const todayStr = new Date().toISOString().split('T')[0];
 
             visibleBorrowers.forEach((rec) => {
-                const origIdx = item.borrowedBy.indexOf(rec);
+                const origIdx = (item.borrowedBy || []).indexOf(rec);
                 let due = rec.dueDate;
                 if (!due && rec.date) {
                     const bTime = new Date(rec.date).getTime();
@@ -3642,6 +3737,7 @@ class ModalManager {
                 const statusBadge = isRecPendingReturn
                     ? `<span class="borrower-due-badge" style="background:rgba(255,183,3,0.15);color:#ffb703;border:1px solid rgba(255,183,3,0.3);"><i data-lucide="clock" style="width:11px;height:11px;vertical-align:middle;"></i> Awaiting Verification</span>`
                     : dueBadge;
+                const returnBtnText = role === 'ADMIN' ? 'Restock' : 'Return';
 
                 const recEl = document.createElement('div');
                 recEl.className = 'borrower-record';
@@ -3654,17 +3750,17 @@ class ModalManager {
                         ${statusBadge}
                         <span class="borrower-qty-badge">${rec.qty} units</span>
                         ${canReturn ? (
-                        isRecPendingReturn
+                        isRecPendingReturn && role !== 'ADMIN'
                             ? `<button class="btn btn-secondary" disabled style="padding: 6px 10px; font-size: 11px; opacity: 0.6; cursor: not-allowed;"><i data-lucide="clock" style="width:12px;height:12px;"></i> Verification Pending</button>`
-                            : `<button class="btn btn-secondary btn-inline-return" style="padding: 6px 10px; font-size: 11px;"><i data-lucide="corner-up-left" style="width:12px;height:12px;"></i> Return</button>`
+                            : `<button class="btn btn-secondary btn-inline-return" style="padding: 6px 10px; font-size: 11px;"><i data-lucide="corner-up-left" style="width:12px;height:12px;"></i> ${returnBtnText}</button>`
                     ) : ''}
                     </div>
                 `;
 
-                if (canReturn && !isRecPendingReturn) {
+                if (canReturn && (!isRecPendingReturn || role === 'ADMIN')) {
                     recEl.querySelector('.btn-inline-return')?.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        this.openReturnModal(rec, item, origIdx);
+                        this.openReturnModal(rec, item, origIdx >= 0 ? origIdx : 0);
                     });
                 }
 
@@ -3682,7 +3778,9 @@ class ModalManager {
         if (!selectedItem) return;
 
         const role = this.getCurrentRole();
-        if (role !== 'ADMIN') {
+        const isAdmin = role === 'ADMIN';
+
+        if (!isAdmin) {
             if (typeof CartManager !== 'undefined') {
                 CartManager.addItem(selectedItem);
                 this.closeAll();
@@ -3698,61 +3796,85 @@ class ModalManager {
             ? selectedItem.availableQuantity
             : Math.max(0, selectedItem.quantity - borrowedSum);
 
-        this.setBorrowModalMode('request', selectedItem.name, available);
-
-        // Auto-fill logged-in borrower details
-        let currentUserName = '';
-        let currentUserRoll = '';
-        try {
-            const userStr = localStorage.getItem('cicr_user');
-            if (userStr) {
-                const parsed = JSON.parse(userStr);
-                currentUserName = parsed.name || parsed.username || '';
-                currentUserRoll = parsed.roll_number || parsed.roll || '';
-                if (!currentUserRoll && parsed.email) {
-                    const match = String(parsed.email).match(/^([0-9]{6,12})@/);
-                    if (match) currentUserRoll = match[1];
-                }
-            }
-        } catch { }
-
-        if (!currentUserName) {
-            currentUserName = localStorage.getItem('cicr_auth') || '';
-        }
-
-        if (!currentUserName) {
-            const profileDisplay = document.getElementById('profile-username-display');
-            if (profileDisplay && profileDisplay.innerText.trim()) {
-                currentUserName = profileDisplay.innerText.trim();
-            }
-        }
-
-        if (!currentUserRoll && currentUserName) {
-            const match = currentUserName.match(/^([0-9]{6,12})$/);
-            if (match) currentUserRoll = match[1];
-        }
+        this.setBorrowModalMode(isAdmin ? 'borrow' : 'request', selectedItem.name, available);
 
         const nameInput = document.getElementById('borrow-name') as HTMLInputElement | null;
-        if (nameInput) {
-            nameInput.value = currentUserName || '';
-            nameInput.defaultValue = currentUserName || '';
-            nameInput.readOnly = true;
-            nameInput.setAttribute('tabindex', '-1');
-            nameInput.title = 'Verified account identity (locked)';
-        }
-
         const rollInput = document.getElementById('borrow-roll') as HTMLInputElement | null;
-        if (rollInput) {
-            rollInput.value = currentUserRoll || '';
-            rollInput.defaultValue = currentUserRoll || '';
-            if (currentUserRoll) {
-                rollInput.readOnly = true;
-                rollInput.setAttribute('tabindex', '-1');
-                rollInput.title = 'Verified student enrollment ID (locked)';
-            } else {
+
+        if (isAdmin) {
+            if (nameInput) {
+                nameInput.value = '';
+                nameInput.defaultValue = '';
+                nameInput.readOnly = false;
+                nameInput.removeAttribute('tabindex');
+                nameInput.placeholder = 'Student / Borrower full name';
+                nameInput.title = 'Enter the recipient student or borrower name';
+            }
+            if (rollInput) {
+                rollInput.value = '';
+                rollInput.defaultValue = '';
                 rollInput.readOnly = false;
                 rollInput.removeAttribute('tabindex');
-                rollInput.title = 'Enter your enrollment ID';
+                rollInput.placeholder = 'Student Enrollment / Roll No.';
+                rollInput.title = 'Enter the student enrollment ID';
+            }
+            const purposeInput = document.getElementById('borrow-purpose') as HTMLInputElement | null;
+            if (purposeInput) {
+                purposeInput.value = '';
+            }
+        } else {
+            // Auto-fill logged-in borrower details
+            let currentUserName = '';
+            let currentUserRoll = '';
+            try {
+                const userStr = localStorage.getItem('cicr_user');
+                if (userStr) {
+                    const parsed = JSON.parse(userStr);
+                    currentUserName = parsed.name || parsed.username || '';
+                    currentUserRoll = parsed.roll_number || parsed.roll || '';
+                    if (!currentUserRoll && parsed.email) {
+                        const match = String(parsed.email).match(/^([0-9]{6,12})@/);
+                        if (match) currentUserRoll = match[1];
+                    }
+                }
+            } catch { }
+
+            if (!currentUserName) {
+                currentUserName = localStorage.getItem('cicr_auth') || '';
+            }
+
+            if (!currentUserName) {
+                const profileDisplay = document.getElementById('profile-username-display');
+                if (profileDisplay && profileDisplay.innerText.trim()) {
+                    currentUserName = profileDisplay.innerText.trim();
+                }
+            }
+
+            if (!currentUserRoll && currentUserName) {
+                const match = currentUserName.match(/^([0-9]{6,12})$/);
+                if (match) currentUserRoll = match[1];
+            }
+
+            if (nameInput) {
+                nameInput.value = currentUserName || '';
+                nameInput.defaultValue = currentUserName || '';
+                nameInput.readOnly = true;
+                nameInput.setAttribute('tabindex', '-1');
+                nameInput.title = 'Verified account identity (locked)';
+            }
+
+            if (rollInput) {
+                rollInput.value = currentUserRoll || '';
+                rollInput.defaultValue = currentUserRoll || '';
+                if (currentUserRoll) {
+                    rollInput.readOnly = true;
+                    rollInput.setAttribute('tabindex', '-1');
+                    rollInput.title = 'Verified student enrollment ID (locked)';
+                } else {
+                    rollInput.readOnly = false;
+                    rollInput.removeAttribute('tabindex');
+                    rollInput.title = 'Enter your enrollment ID';
+                }
             }
         }
 
@@ -4003,7 +4125,7 @@ class ModalManager {
                         status: statusVal,
                         requestedAt: rec.date || new Date().toISOString(),
                         reviewedAt: rec.return_date || rec.date,
-                        reviewedBy: rec.admin_approved_by || 'Vardaan Saxena'
+                        reviewedBy: rec.admin_approved_by || rec.reviewed_by || 'Lab Administrator'
                     };
 
                     addOrMergeDrawerRequest(mappedReq);
@@ -4425,15 +4547,105 @@ class ModalManager {
 
         const submitBtn = document.getElementById('borrow-form-submit') as HTMLButtonElement | null;
         this.isSubmittingBorrow = true;
+        const isAdmin = this.getCurrentRole() === 'ADMIN';
+
         if (submitBtn) {
             submitBtn.disabled = true;
-            submitBtn.innerText = 'Submitting Request...';
+            submitBtn.innerText = isAdmin ? 'Issuing Hardware...' : 'Submitting Request...';
         }
 
         const storedUser = JSON.parse(localStorage.getItem('cicr_user') || '{}');
-        const userEmail = storedUser.email || (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : 'vardaansaxena096@gmail.com');
+        const userEmail = storedUser.email || (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : (storedUser.roll_number ? `${storedUser.roll_number}@mail.jiit.ac.in` : 'admin@cicr.lab'));
+        const studentEmail = (rollNum && /^\d+$/.test(rollNum))
+            ? `${rollNum}@mail.jiit.ac.in`
+            : (rollNum?.includes('@') ? rollNum : userEmail);
 
-        // Route component checkout request to the Admin Portal Request Queue
+        if (isAdmin) {
+            // Direct issue directly into student custody via POST /api/borrow
+            const directPayload = {
+                inventory_id: selectedItem.id,
+                itemId: selectedItem.id,
+                borrower_name: borrowerName,
+                roll_number: rollNum,
+                borrower_email: studentEmail,
+                quantity: qty,
+                purpose: purpose,
+                duration_days: durationDays,
+                durationDays: durationDays,
+                dueDate: dueDate,
+                due_date: dueDate
+            };
+
+            try {
+                const res = await fetch(`${API_BASE}/borrow`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(directPayload)
+                });
+
+                const resData = await res.json().catch(() => ({})) as any;
+                if (!res.ok) {
+                    ToastManager.show('Issue Failed', resData?.message || 'Could not issue component.', 'error');
+                    return;
+                }
+
+                // Update local inventory available quantity immediately
+                const newAvailable = typeof resData?.data?.newAvailableQty === 'number'
+                    ? resData.data.newAvailableQty
+                    : Math.max(0, (selectedItem.availableQuantity ?? selectedItem.quantity) - qty);
+                selectedItem.availableQuantity = newAvailable;
+
+                if (!selectedItem.borrowedBy) selectedItem.borrowedBy = [];
+                const recordId = resData?.data?.borrowRecord?.id || `borrow-${Date.now()}`;
+                selectedItem.borrowedBy.push({
+                    id: recordId,
+                    name: borrowerName,
+                    userName: borrowerName,
+                    borrowerName: borrowerName,
+                    roll: rollNum,
+                    userRoll: rollNum,
+                    email: studentEmail,
+                    userEmail: studentEmail,
+                    qty: qty,
+                    purpose: purpose,
+                    date: new Date().toISOString(),
+                    dueDate: dueDate,
+                    status: 'BORROWED',
+                    returned: false
+                });
+
+                (document.getElementById('borrow-form') as HTMLFormElement).reset();
+                this.close('borrow-form-modal');
+
+                ToastManager.show(
+                    'Component Issued',
+                    `Successfully issued ${qty}x ${selectedItem.name} to ${borrowerName} (${rollNum}).`,
+                    'success'
+                );
+                DatabaseManager.addLog('borrow', `<span>[Admin]</span> issued ${qty}x <span>${selectedItem.name}</span> to <strong>${borrowerName}</strong> (${rollNum}).`);
+
+                await DatabaseManager.syncFromBackend();
+                if (window.dashboard) {
+                    window.dashboard.renderInventory(true);
+                    window.dashboard.renderStats();
+                }
+            } catch (err: any) {
+                console.error('Direct borrow error:', err);
+                ToastManager.show('Network Error', 'Failed to connect to backend.', 'error');
+            } finally {
+                this.isSubmittingBorrow = false;
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = isAdmin ? 'Confirm & Issue Hardware' : 'Submit Issue Request';
+                }
+            }
+            return;
+        }
+
+        // Route component checkout request to the Admin Portal Request Queue for regular member
         const date = new Date().toISOString().split('T')[0];
         const requestId = `req-${Date.now()}`;
         const newReq: RequestRecord = {
@@ -4526,10 +4738,20 @@ class ModalManager {
         }
     }
 
-    // Opens the return quantity selector. All users (both admins and members) choose
-    // how many borrowed units to return; all requests are sent to the Admin Portal for approval.
+    // Opens the return quantity selector. Admins directly restock items into vault inventory;
+    // Members submit return requests for Admin verification.
     public static openReturnModal(rec: BorrowRecord, item: InventoryItem, origIdx: number) {
+        selectedItem = item;
         const isAdmin = this.getCurrentRole() === 'ADMIN';
+
+        if (!rec && item.borrowedBy && item.borrowedBy.length > 0) {
+            rec = item.borrowedBy[0];
+        }
+
+        if (!rec) {
+            ToastManager.show('No Active Loan', 'No active loan found for this component.', 'warning');
+            return;
+        }
 
         // Resolve borrowId if missing or unlinked
         let effectiveBorrowId = rec?.id;
@@ -4565,8 +4787,17 @@ class ModalManager {
             holderInfo.innerText = `Borrower: ${rec.name || 'Member'} (${rec.roll || 'Enrolled'}) · Issued: ${borrowedQty} unit(s) on ${rec.date || 'Active'}`;
         }
 
-        (document.getElementById('return-borrow-id') as HTMLInputElement).value = effectiveBorrowId;
+        const returnIdInput = document.getElementById('return-borrow-id') as HTMLInputElement;
+        if (returnIdInput) {
+            returnIdInput.value = effectiveBorrowId;
+            returnIdInput.dataset.itemId = item.id;
+        }
         (document.getElementById('return-borrow-idx') as HTMLInputElement).value = String(origIdx);
+
+        const formEl = document.getElementById('return-qty-form') as HTMLFormElement | null;
+        if (formEl) {
+            formEl.dataset.itemId = item.id;
+        }
 
         const qtyInput = document.getElementById('return-qty-input') as HTMLInputElement;
         qtyInput.min = '1';
@@ -4577,15 +4808,25 @@ class ModalManager {
         if (maxLabel) maxLabel.innerText = `of ${borrowedQty} borrowed`;
 
         const subtitle = document.getElementById('return-modal-subtitle');
-        if (subtitle) subtitle.innerText = 'Choose how many borrowed units you wish to return';
+        if (subtitle) {
+            subtitle.innerText = isAdmin
+                ? 'Admin Direct Restock · Return items to vault inventory'
+                : 'Choose how many borrowed units you wish to return';
+        }
 
         const noteText = document.getElementById('return-modal-note-text');
-        if (noteText) noteText.innerText = 'Return requests are sent to the Admin Portal for verification. Stock is checked back into inventory once approved by an administrator.';
+        if (noteText) {
+            noteText.innerText = isAdmin
+                ? 'Restocking will immediately return units to available vault inventory and close this active loan record.'
+                : 'Return requests are sent to the Admin Portal for verification. Stock is checked back into inventory once approved by an administrator.';
+        }
 
         const submitBtn = document.getElementById('btn-confirm-return-submit') as HTMLButtonElement | null;
         if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i data-lucide="corner-up-left"></i> Submit Return to Admin';
+            submitBtn.innerHTML = isAdmin
+                ? '<i data-lucide="package-check"></i> Restock & Return to Vault'
+                : '<i data-lucide="corner-up-left"></i> Submit Return to Admin';
         }
 
         ModalManager.updateReturnQtyPreview();
@@ -4595,77 +4836,139 @@ class ModalManager {
 
     private static isSubmittingReturn = false;
 
-    // Submits a full or partial return. Always hits /borrow/return-request so that
-    // requests (from both admins and members) go to the Admin Portal for verification.
+    // Submits a full or partial return. Routes via POST /borrow/return which immediately
+    // restocks the vault for admins and registers a verification request for members.
     public static async handleReturnSubmission(borrowId: string, qtyVal: number, _idx: number) {
         if (!borrowId || this.isSubmittingReturn) {
             if (!borrowId) ToastManager.show('Return Error', 'Borrow reference is missing.', 'error');
             return;
         }
+
+        if (!selectedItem) {
+            const formEl = document.getElementById('return-qty-form') as HTMLFormElement | null;
+            const itemId = formEl?.dataset.itemId;
+            if (itemId) {
+                selectedItem = inventory.find(i => String(i.id) === String(itemId)) || null;
+            }
+        }
+
         this.isSubmittingReturn = true;
 
         const isAdmin = this.getCurrentRole() === 'ADMIN';
         const token = localStorage.getItem('cicr_token');
         const submitBtn = document.getElementById('btn-confirm-return-submit') as HTMLButtonElement | null;
-        const itemName = (document.getElementById('return-modal-item-name')?.innerText || 'Component').trim();
+        const itemName = (document.getElementById('return-modal-item-name')?.innerText || selectedItem?.name || 'Component').trim();
         const requestedQty = Math.max(1, Number(qtyVal) || 1);
 
-        if (submitBtn) submitBtn.disabled = true;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerText = isAdmin ? 'Restocking Vault...' : 'Submitting Return...';
+        }
 
         try {
-            const endpoint = `${API_BASE}/borrow/return-request`;
+            const endpoint = `${API_BASE}/borrow/return`;
+            const payload = {
+                borrow_id: borrowId,
+                borrowId: borrowId,
+                id: borrowId,
+                itemId: selectedItem?.id,
+                inventory_id: selectedItem?.id,
+                returnQuantity: requestedQty,
+                quantity: requestedQty
+            };
+
             const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ borrowId, itemId: selectedItem?.id, returnQuantity: requestedQty })
+                body: JSON.stringify(payload)
             });
 
-            const payload = await res.json().catch(() => ({})) as any;
-            const ok = res.ok || res.status === 202;
+            const resData = await res.json().catch(() => ({})) as any;
+            const isOk = res.ok || res.status === 200 || res.status === 202;
 
-            if (!ok) {
-                ToastManager.show('Return Error', payload.message || 'Failed to submit the return.', 'error');
-                if (submitBtn) submitBtn.disabled = false;
+            if (!isOk) {
+                ToastManager.show('Return Error', resData?.message || 'Failed to process return.', 'error');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = isAdmin ? '<i data-lucide="package-check"></i> Restock & Return to Vault' : '<i data-lucide="corner-up-left"></i> Submit Return to Admin';
+                    renderLucideIcons(submitBtn);
+                }
                 return;
             }
 
             this.close('return-qty-modal');
 
-            ToastManager.show(
-                'Return Request Submitted',
-                `Return of ${requestedQty}x ${itemName} is awaiting Administrator approval in the Admin Portal.`,
-                'success'
-            );
-            DatabaseManager.addLog('return', `<span>${itemName}</span> return request submitted for ${requestedQty} unit(s) — pending admin approval.`);
+            // If Admin (status 200) -> Direct Restock into Vault
+            if (res.status === 200 || isAdmin) {
+                if (selectedItem) {
+                    const totalQty = Number(selectedItem.quantity) || 0;
+                    selectedItem.availableQuantity = Math.min(totalQty, (selectedItem.availableQuantity ?? 0) + requestedQty);
+                    if (selectedItem.borrowedBy) {
+                        const rec = selectedItem.borrowedBy.find(r => r.id === borrowId || (r as any).borrowId === borrowId);
+                        if (rec) {
+                            if (requestedQty >= rec.qty) {
+                                rec.returned = true;
+                                (rec as any).status = 'RETURNED';
+                            } else {
+                                rec.qty -= requestedQty;
+                            }
+                        }
+                    }
+                }
 
-            // Reflect the pending return immediately in the local requests list.
-            const localUser = (() => {
-                try { return JSON.parse(localStorage.getItem('cicr_user') || '{}'); } catch { return {}; }
-            })();
-            const returnId = payload?.data?.id || `req-ret-local-${Date.now()}`;
-            const localReq: RequestRecord = {
-                id: returnId,
-                type: 'RETURN',
-                borrowId,
-                returnQuantity: requestedQty,
-                itemId: selectedItem?.id || '',
-                itemName,
-                name: localUser.name || localStorage.getItem('cicr_auth') || 'Member',
-                roll: localUser.roll_number || localUser.roll || '',
-                qty: requestedQty,
-                purpose: `Return ${requestedQty} unit(s)`,
-                status: 'PENDING',
-                requestedAt: new Date().toISOString()
-            };
-            // Deduplicate: remove any existing pending return for this borrowId or id
-            requests = requests.filter(r => !(r.id === returnId || (r.type === 'RETURN' && (r as any).borrowId === borrowId)));
-            requests.unshift(localReq);
-            DatabaseManager.save();
+                ToastManager.show(
+                    'Component Restocked',
+                    `Successfully returned ${requestedQty}x ${itemName} back into the vault.`,
+                    'success'
+                );
+                DatabaseManager.addLog('return', `<span>[Admin]</span> restocked ${requestedQty}x <span>${itemName}</span> into vault inventory.`);
+            } else {
+                // Member (status 202) -> Return request submitted
+                if (selectedItem && selectedItem.borrowedBy) {
+                    const rec = selectedItem.borrowedBy.find(r => r.id === borrowId || (r as any).borrowId === borrowId);
+                    if (rec) {
+                        (rec as any).status = 'RETURN_REQUESTED';
+                    }
+                }
+
+                ToastManager.show(
+                    'Return Request Submitted',
+                    `Return of ${requestedQty}x ${itemName} is awaiting Administrator approval in the Admin Portal.`,
+                    'success'
+                );
+                DatabaseManager.addLog('return', `<span>${itemName}</span> return request submitted for ${requestedQty} unit(s) — pending admin approval.`);
+
+                const localUser = (() => {
+                    try { return JSON.parse(localStorage.getItem('cicr_user') || '{}'); } catch { return {}; }
+                })();
+                const returnId = resData?.data?.id || `req-ret-local-${Date.now()}`;
+                const localReq: RequestRecord = {
+                    id: returnId,
+                    type: 'RETURN',
+                    borrowId,
+                    returnQuantity: requestedQty,
+                    itemId: selectedItem?.id || '',
+                    itemName,
+                    name: localUser.name || localStorage.getItem('cicr_auth') || 'Member',
+                    roll: localUser.roll_number || localUser.roll || '',
+                    qty: requestedQty,
+                    purpose: `Return ${requestedQty} unit(s)`,
+                    status: 'PENDING',
+                    requestedAt: new Date().toISOString()
+                };
+                requests = requests.filter(r => !(r.id === returnId || (r.type === 'RETURN' && (r as any).borrowId === borrowId)));
+                requests.unshift(localReq);
+                DatabaseManager.save();
+            }
 
             await DatabaseManager.syncFromBackend();
+            if (window.dashboard) {
+                window.dashboard.renderInventory(true);
+                window.dashboard.renderStats();
+            }
 
             if (selectedItem) {
                 const refreshed = inventory.find(i => i.id === selectedItem?.id);
@@ -4673,15 +4976,19 @@ class ModalManager {
             }
             DatabaseManager.updateNotificationBadges();
 
-            if (isAdmin) {
+            if (isAdmin && typeof AdminManager !== 'undefined' && typeof AdminManager.loadHardwareRequests === 'function') {
                 AdminManager.loadHardwareRequests(true);
             }
         } catch (e) {
             console.error('Return API error:', e);
             ToastManager.show('Network Error', 'Failed to reach server.', 'error');
-            if (submitBtn) submitBtn.disabled = false;
         } finally {
             this.isSubmittingReturn = false;
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = isAdmin ? '<i data-lucide="package-check"></i> Restock & Return to Vault' : '<i data-lucide="corner-up-left"></i> Submit Return to Admin';
+                renderLucideIcons(submitBtn);
+            }
         }
     }
 
@@ -4715,8 +5022,12 @@ class ModalManager {
             try { return JSON.parse(localStorage.getItem('cicr_user') || '{}'); } catch { return {}; }
         })();
         const borrowerName = storedUser.name || localStorage.getItem('cicr_auth') || 'Member';
-        const borrowerEmail = storedUser.email || (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : 'student@mail.jiit.ac.in');
-        const rollNum = storedUser.roll_number || storedUser.roll || (borrowerEmail.includes('@') ? borrowerEmail.split('@')[0] : '');
+        let rollNum = storedUser.roll_number || storedUser.roll || '';
+        if (!rollNum && storedUser.email) {
+            const m = String(storedUser.email).match(/^([0-9]{6,12})@/);
+            if (m) rollNum = m[1];
+        }
+        const borrowerEmail = storedUser.email || (rollNum ? `${rollNum}@mail.jiit.ac.in` : (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : ''));
 
         const nameEl = document.getElementById('bulk-return-borrower-name');
         if (nameEl) nameEl.innerText = borrowerName;
@@ -5742,8 +6053,9 @@ class AuthManager {
         const roleEl = document.getElementById('signout-user-role');
         const avatarEl = document.getElementById('signout-user-avatar');
 
-        const userName = user?.name || user?.username || 'Member';
-        const userEmail = user?.email || 'authenticated@cicr.lab';
+        const userName = user?.name || user?.username || localStorage.getItem('cicr_auth') || 'Member';
+        const userRoll = user?.roll_number || user?.roll || '';
+        const userEmail = user?.email || (userRoll ? `${userRoll}@mail.jiit.ac.in` : (localStorage.getItem('cicr_auth')?.includes('@') ? localStorage.getItem('cicr_auth') : 'member@mail.jiit.ac.in'));
         const userRole = (user?.role || localStorage.getItem('cicr_role') || 'MEMBER').toUpperCase();
 
         if (nameEl) nameEl.innerText = userName;
@@ -6385,7 +6697,7 @@ class AdminManager {
 
                 if (res.ok) {
                     const result = await res.json();
-                    if (Array.isArray(result.data) && result.data.length > 0) {
+                    if (Array.isArray(result.data)) {
                         this.users = result.data.filter((u: any) => {
                             const email = (u?.email || '').toLowerCase().trim();
                             const name = (u?.name || '').toLowerCase().trim();
@@ -6479,34 +6791,37 @@ class AdminManager {
                 existing.isMasterAdmin = true;
                 if (!existing.name || existing.name === 'Anonymous') existing.name = m.name;
                 if (!existing.batch && m.batch) existing.batch = m.batch;
-            } else {
+            } else if (this.users.length === 0) {
                 this.users.push(m);
             }
         }
 
-        const defaultMembers: AdminUserRecord[] = [
-            { id: 'mem-dhairya', name: 'Dhairya Mittal', email: 'jeg262612@mail.jiit.ac.in', roll_number: '992501030400', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-gourav', name: 'GOURAV MANDAL', email: '992501210003@mail.jiit.ac.in', roll_number: '992501210003', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-arsh', name: 'mohammad arsh', email: 'bcg26260@mail.jiit.ac.in', roll_number: '992501040050', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-gungun', name: 'Gungun Yadav', email: 'njg262503@mail.jiit.ac.in', roll_number: '992501030380', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F6 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-kanan', name: 'Kanan Goyal', email: '992510170013@mail.jiit.ac.in', roll_number: '992510170013', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'MCA1', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-pulkit', name: 'Pulkit Sukhija', email: '992501220058@mail.jiit.ac.in', roll_number: '992501220058', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E2 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-shaurya', name: 'Kumar Shaurya', email: '992501040097@mail.jiit.ac.in', roll_number: '992501040097', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H3 IT', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-arohan', name: 'Arohan', email: '992501210016@mail.jiit.ac.in', roll_number: '992501210016', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-tushar', name: 'Tushar Goyal', email: '992501210081@mail.jiit.ac.in', roll_number: '992501210081', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-agamjot', name: 'Agamjot Singh', email: '992501030404@mail.jiit.ac.in', roll_number: '992501030404', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-utsavi', name: 'Utsavi Sinha', email: '992501210022@mail.jiit.ac.in', roll_number: '992501210022', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-tanisha', name: 'Tanisha', email: '992501040037@mail.jiit.ac.in', roll_number: '992501040037', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-kushagra', name: 'Kushagra Garg', email: '992501030406@mail.jiit.ac.in', roll_number: '992501030406', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-parivisha', name: 'Parivisha Midha', email: '992501040035@mail.jiit.ac.in', roll_number: '992501040035', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
-            { id: 'mem-juhi', name: 'Juhi Singh', email: 'jeg262274@mail.jiit.ac.in', roll_number: 'JEG262274', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F27 AI & ML', created_at: '2026-09-24T18:00:00.000Z' },
-            { id: 'mem-dev', name: 'Dev Maheshwari', email: '992501210067@mail.jiit.ac.in', roll_number: '992501210067', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-24T18:20:00.000Z' }
-        ];
+        // Only seed default members if user directory is empty (e.g. offline/initial demo state)
+        if (this.users.length === 0) {
+            const defaultMembers: AdminUserRecord[] = [
+                { id: 'mem-dhairya', name: 'Dhairya Mittal', email: 'jeg262612@mail.jiit.ac.in', roll_number: '992501030400', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-gourav', name: 'GOURAV MANDAL', email: '992501210003@mail.jiit.ac.in', roll_number: '992501210003', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-arsh', name: 'mohammad arsh', email: 'bcg26260@mail.jiit.ac.in', roll_number: '992501040050', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-gungun', name: 'Gungun Yadav', email: 'njg262503@mail.jiit.ac.in', roll_number: '992501030380', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F6 CSE', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-kanan', name: 'Kanan Goyal', email: '992510170013@mail.jiit.ac.in', roll_number: '992510170013', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'MCA1', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-pulkit', name: 'Pulkit Sukhija', email: '992501220058@mail.jiit.ac.in', roll_number: '992501220058', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E2 ECM', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-shaurya', name: 'Kumar Shaurya', email: '992501040097@mail.jiit.ac.in', roll_number: '992501040097', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H3 IT', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-arohan', name: 'Arohan', email: '992501210016@mail.jiit.ac.in', roll_number: '992501210016', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-tushar', name: 'Tushar Goyal', email: '992501210081@mail.jiit.ac.in', roll_number: '992501210081', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-agamjot', name: 'Agamjot Singh', email: '992501030404@mail.jiit.ac.in', roll_number: '992501030404', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-utsavi', name: 'Utsavi Sinha', email: '992501210022@mail.jiit.ac.in', roll_number: '992501210022', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E1 ECM', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-tanisha', name: 'Tanisha', email: '992501040037@mail.jiit.ac.in', roll_number: '992501040037', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-kushagra', name: 'Kushagra Garg', email: '992501030406@mail.jiit.ac.in', roll_number: '992501030406', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F7 CSE', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-parivisha', name: 'Parivisha Midha', email: '992501040035@mail.jiit.ac.in', roll_number: '992501040035', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'H2 IT', created_at: '2026-09-08T17:05:00.000Z' },
+                { id: 'mem-juhi', name: 'Juhi Singh', email: 'jeg262274@mail.jiit.ac.in', roll_number: 'JEG262274', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'F27 AI & ML', created_at: '2026-09-24T18:00:00.000Z' },
+                { id: 'mem-dev', name: 'Dev Maheshwari', email: '992501210067@mail.jiit.ac.in', roll_number: '992501210067', role: 'MEMBER', status: 'APPROVED', isMasterAdmin: false, batch: 'E3 ECM', created_at: '2026-09-24T18:20:00.000Z' }
+            ];
 
-        for (const mem of defaultMembers) {
-            const existing = this.users.find(u => u.email.toLowerCase() === mem.email.toLowerCase());
-            if (!existing) {
-                this.users.push(mem);
+            for (const mem of defaultMembers) {
+                const existing = this.users.find(u => u.email.toLowerCase() === mem.email.toLowerCase());
+                if (!existing) {
+                    this.users.push(mem);
+                }
             }
         }
 
@@ -6547,11 +6862,9 @@ class AdminManager {
     static getHandledRequestIds(): Set<string> {
         try {
             const raw = localStorage.getItem('cicr_dismissed_requests');
-            const set = new Set<string>(raw ? JSON.parse(raw) : []);
-            set.add('req_1789341756703_7d6b6494');
-            return set;
+            return new Set<string>(raw ? JSON.parse(raw) : []);
         } catch {
-            return new Set(['req_1789341756703_7d6b6494']);
+            return new Set<string>();
         }
     }
 
@@ -6649,7 +6962,7 @@ class AdminManager {
                 itemId: r.itemId,
                 itemName: r.itemName,
                 borrowerName: r.name,
-                borrowerEmail: (r as any).email || (r as any).borrowerEmail || (r.roll ? `${r.roll}@mail.jiit.ac.in` : 'student@mail.jiit.ac.in'),
+                borrowerEmail: (r as any).email || (r as any).borrowerEmail || (r.roll ? `${r.roll}@mail.jiit.ac.in` : ''),
                 rollNumber: r.roll || null,
                 quantity: Number(r.qty) || 1,
                 purpose: r.purpose || 'Testing',
@@ -7639,8 +7952,8 @@ class AdminManager {
         );
 
         const displayName = matchedUser?.name || data.name || 'Student Borrower';
-        const displayEmail = matchedUser?.email || data.email || 'student@mail.jiit.ac.in';
-        const displayRoll = matchedUser?.roll_number || data.roll || (displayEmail.includes('@') ? displayEmail.split('@')[0] : '—');
+        const displayEmail = matchedUser?.email || data.email || (data.roll ? `${data.roll}@mail.jiit.ac.in` : '—');
+        const displayRoll = matchedUser?.roll_number || data.roll || (displayEmail.includes('@') && !displayEmail.startsWith('—') ? displayEmail.split('@')[0] : '—');
         const displayBranch = getStudentBranch(displayRoll, matchedUser?.batch || data.batch);
         const displayRole = matchedUser?.role || (ModalManager.isDesignatedAdminUser(displayEmail, displayName) ? 'ADMIN' : 'MEMBER');
         const displayStatus = matchedUser?.status || 'ACTIVE';
@@ -8787,7 +9100,7 @@ class ProfileViewManager {
         const username = (user.username || (authName ? authName.toLowerCase() : 'operator')).trim();
         const role = (user.role || localStorage.getItem('cicr_user_role') || 'MEMBER').toUpperCase();
         const roll = (user.roll_number || user.roll || '').trim();
-        const email = (user.email || (roll ? `${roll}@mail.jiit.ac.in` : '')).trim() || 'operator@mail.jiit.ac.in';
+        const email = (user.email || (roll ? `${roll}@mail.jiit.ac.in` : '')).trim() || (authName.includes('@') ? authName : '');
         const branch = getStudentBranch(roll, user.branch || user.batch);
 
         // Hero initials & avatar image sync
@@ -9373,7 +9686,7 @@ class ProfileEditManager {
         if (usernameInput) usernameInput.value = username;
         if (branchInput) branchInput.value = branch;
         if (emailInput) {
-            emailInput.value = email || 'student@mail.jiit.ac.in';
+            emailInput.value = email || (roll ? `${roll}@mail.jiit.ac.in` : '');
             emailInput.readOnly = true;
             emailInput.disabled = true;
         }
@@ -9736,7 +10049,7 @@ class HardwareLedgerManager {
                             adminApprover = '';
                         }
                         if (!adminApprover || adminApprover === 'Admin Team' || adminApprover === 'ADMIN' || adminApprover === 'Admin') {
-                            adminApprover = 'Vardaan Saxena';
+                            adminApprover = 'Lab Administrator';
                         } else {
                             adminApprover = adminApprover.replace(/\s*\([Aa]dmin\)/gi, '').trim();
                         }
@@ -9746,7 +10059,7 @@ class HardwareLedgerManager {
                             component_name: item.name,
                             category: item.category || 'Component',
                             borrower_name: borrower,
-                            borrower_email: b.userEmail || b.email || (b.userRoll ? `${b.userRoll}@mail.jiit.ac.in` : 'operator@mail.jiit.ac.in'),
+                            borrower_email: b.userEmail || b.email || (b.userRoll ? `${b.userRoll}@mail.jiit.ac.in` : ''),
                             borrower_roll: b.userRoll || b.roll || (b.userEmail ? b.userEmail.split('@')[0] : '—'),
                             admin_approved_by: adminApprover,
                             operator_name: adminApprover,
@@ -9822,7 +10135,7 @@ class HardwareLedgerManager {
                 }
 
                 if (!adminApprover || adminApprover === 'Admin Team' || adminApprover === 'ADMIN' || adminApprover === 'Admin') {
-                    adminApprover = isPending ? 'Awaiting Admin Review' : 'Vardaan Saxena';
+                    adminApprover = isPending ? 'Awaiting Admin Review' : 'Lab Administrator';
                 } else {
                     adminApprover = adminApprover.replace(/\s*\([Aa]dmin\)/gi, '').trim();
                 }
@@ -9874,6 +10187,7 @@ class HardwareLedgerManager {
                 const myRoll = (currentUser.roll_number || currentUser.roll || '').toLowerCase().trim();
                 const myName = (currentUser.name || currentUser.username || authName || '').toLowerCase().trim();
 
+                const isGeneric = (n: string) => !n || ['member', 'student', 'user', 'admin', 'borrower', 'guest', 'student borrower'].includes(n) || n.length < 3;
                 allRecords = allRecords.filter(r => {
                     const bEmail = (r.borrower_email || '').toLowerCase().trim();
                     const bRoll = (r.borrower_roll || '').toLowerCase().trim();
@@ -9881,7 +10195,7 @@ class HardwareLedgerManager {
 
                     return (myEmail && bEmail === myEmail) ||
                            (myRoll && bRoll === myRoll) ||
-                           (myName && bName === myName);
+                           (!isGeneric(myName) && !isGeneric(bName) && bName === myName);
                 });
             }
 
@@ -10021,7 +10335,7 @@ class HardwareLedgerManager {
                     : `<button type="button" class="btn-ledger-return-action" data-borrow-id="${r.id}" data-comp-id="${r.component_id}" data-comp-name="${AdminManager.escapeHtml(r.component_name)}" title="Initiate Component Return"><i data-lucide="corner-down-left"></i> <span>Return</span></button>`;
             }
 
-            const rawApprover = r.admin_approved_by || (isPending ? 'Awaiting Admin Review' : 'Vardaan Saxena');
+            const rawApprover = r.admin_approved_by || (isPending ? 'Awaiting Admin Review' : 'Lab Administrator');
             const approverName = rawApprover.replace(/\s*\([Aa]dmin\)/gi, '').trim();
 
             return `
@@ -10037,11 +10351,8 @@ class HardwareLedgerManager {
                     <!-- Borrower -->
                     <td>
                         <div class="hw-td-borrower">
-                            <div class="hw-borrower-top">
-                                <a href="#" class="admin-user-clickable hw-borrower-name" data-user-name="${AdminManager.escapeHtml(r.borrower_name)}" data-user-email="${AdminManager.escapeHtml(r.borrower_email)}" data-user-roll="${AdminManager.escapeHtml(r.borrower_roll)}" title="Inspect Member Profile">${AdminManager.escapeHtml(r.borrower_name)}</a>
-                                <span class="hw-roll-badge">${AdminManager.escapeHtml(r.borrower_roll || 'JIIT')}</span>
-                            </div>
-                            <span class="hw-borrower-email">${AdminManager.escapeHtml(r.borrower_email || '')}</span>
+                            <a href="#" class="admin-user-clickable hw-borrower-name" data-user-name="${AdminManager.escapeHtml(r.borrower_name)}" data-user-email="${AdminManager.escapeHtml(r.borrower_email)}" data-user-roll="${AdminManager.escapeHtml(r.borrower_roll)}" title="Inspect Member Profile">${AdminManager.escapeHtml(r.borrower_name)}</a>
+                            <span class="hw-roll-badge">${AdminManager.escapeHtml(r.borrower_roll || 'JIIT')}</span>
                         </div>
                     </td>
 
@@ -10052,7 +10363,6 @@ class HardwareLedgerManager {
                                 <i data-lucide="${isPending ? 'clock' : 'shield-check'}"></i>
                                 <span class="hw-admin-name">${AdminManager.escapeHtml(approverName)}</span>
                             </div>
-                            <span class="hw-admin-role-tag">${isPending ? 'PENDING APPROVAL' : 'VERIFIED ADMIN'}</span>
                         </div>
                     </td>
 

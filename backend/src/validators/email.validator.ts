@@ -6,14 +6,12 @@
 //   - Admins: The current authorized administrator emails
 //   - General external emails: strictly blocked for registration and non-admin login
 
-export const CURRENT_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com'
-];
+import { SUPER_ADMIN_EMAILS, isSuperAdminEmail } from '../modules/auth/userApprovalService';
+
+export const CURRENT_ADMIN_EMAILS = SUPER_ADMIN_EMAILS;
 
 export const isCurrentAdminEmail = (email: string): boolean => {
-  const norm = String(email ?? '').trim().toLowerCase();
-  return CURRENT_ADMIN_EMAILS.some((admin) => admin.toLowerCase() === norm);
+  return isSuperAdminEmail(email);
 };
 
 // Student emails: enrollment number @mail.jiit.ac.in

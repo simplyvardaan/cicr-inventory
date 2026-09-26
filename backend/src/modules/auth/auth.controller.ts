@@ -8,6 +8,7 @@ import { escapeOrSegment } from '../../validators/postgrest';
 import {
   MASTER_ADMIN_EMAIL,
   SUPER_ADMIN_EMAILS,
+  DEFAULT_DESIGNATED_ADMINS,
   isSuperAdminEmail,
   isDesignatedAdmin,
   isPurgedUser,
@@ -101,8 +102,9 @@ export const register = async (req: Request, res: Response) => {
     // H-1 FIX: ADMIN derives from the exact allow-list email only; name never grants ADMIN.
     const isDesignated = isDesignatedAdmin(normEmail);
     const userRole = (isMasterAdmin || isDesignated) ? 'ADMIN' : 'MEMBER';
-    // Auto-approve college accounts and designated admins!
-    const initialStatus = 'APPROVED';
+    const isCollegeAccount = normEmail.endsWith('@mail.jiit.ac.in') || normEmail.endsWith('@jiit.ac.in');
+    const autoApproveStudents = process.env.AUTO_APPROVE_STUDENTS === 'true';
+    const initialStatus = (isMasterAdmin || isDesignated || (isCollegeAccount && autoApproveStudents)) ? 'APPROVED' : 'PENDING';
 
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
@@ -145,8 +147,8 @@ export const register = async (req: Request, res: Response) => {
       newUser = insertedUser;
     }
 
-    // Track approval status and registration metadata with AUTO-APPROVAL
-    setUserApproval(normEmail, 'APPROVED', 'SYSTEM (AUTO-APPROVE)', {
+    // Track approval status and registration metadata
+    setUserApproval(normEmail, initialStatus, (initialStatus === 'APPROVED') ? 'SYSTEM (AUTO-APPROVE)' : 'PENDING_REGISTRATION', {
       username: normUsername,
       batch: userBatch,
       name: name.trim(),
@@ -158,7 +160,7 @@ export const register = async (req: Request, res: Response) => {
       action: 'Sign Up',
       userId: newUser.id,
       itemId: null,
-      description: `New ${userRole === 'ADMIN' ? 'Admin' : 'Student'} registration (Auto-Approved): ${name.trim()} (@${normUsername}, ${normEmail}) [Batch: ${userBatch || 'N/A'}, Role: ${userRole}]`
+      description: `New ${userRole === 'ADMIN' ? 'Admin' : 'Student'} registration (${initialStatus}): ${name.trim()} (@${normUsername}, ${normEmail}) [Batch: ${userBatch || 'N/A'}, Role: ${userRole}]`
     }).catch(() => {});
 
     // Send instant email notification to ALL Admins if non-master-admin registers
@@ -181,17 +183,17 @@ export const register = async (req: Request, res: Response) => {
       tempPassword: password,
       rollNumber: userRoll,
       batch: userBatch,
-      isAutoApproved: true
+      isAutoApproved: initialStatus === 'APPROVED'
     }).catch((e) => console.error('[EMAIL ERROR] Failed to send welcome credentials email:', e));
 
     const message = (isMasterAdmin || isDesignated)
       ? `Admin registered and approved successfully! Welcome ${name.trim()}.`
-      : `Account registered and auto-approved successfully! You can now log in.`;
+      : (initialStatus === 'APPROVED' ? `Account registered and auto-approved successfully! You can now log in.` : `Account registered successfully! Awaiting administrator approval.`);
 
     return res.status(201).json({
       status: 'success',
       message,
-      data: { ...newUser, username: normUsername, batch: userBatch, status: 'APPROVED' }
+      data: { ...newUser, username: normUsername, batch: userBatch, status: initialStatus }
     });
   } catch (err: any) {
     return res.status(500).json({ status: 'error', message: err.message });
@@ -254,11 +256,17 @@ export const login = async (req: Request, res: Response) => {
     // 4. Master Admin Aliases
     if (!user) {
       const lower = loginId.toLowerCase();
-      if (['vardaan', 'vardaansaxena'].includes(lower)) {
-        const { data } = await dbRead.from('users').select('*').eq('email', 'vardaansaxena096@gmail.com').maybeSingle();
-        if (data) user = data;
-      } else if (['cicradmin', 'cicrinventory', 'cicr admin'].includes(lower)) {
-        const { data } = await dbRead.from('users').select('*').eq('email', 'cicrinventory@gmail.com').maybeSingle();
+      const match = DEFAULT_DESIGNATED_ADMINS.find(
+        (a) =>
+          a.username.toLowerCase() === lower ||
+          a.email.toLowerCase() === lower ||
+          a.name.toLowerCase() === lower ||
+          (a.roll_number && a.roll_number.toLowerCase() === lower) ||
+          (a.username === 'cicradmin' && ['cicradmin', 'cicrinventory', 'cicr admin'].includes(lower)) ||
+          (a.username === 'vardaan' && ['vardaan', 'vardaansaxena'].includes(lower))
+      );
+      if (match) {
+        const { data } = await dbRead.from('users').select('*').eq('email', match.email).maybeSingle();
         if (data) user = data;
       }
     }

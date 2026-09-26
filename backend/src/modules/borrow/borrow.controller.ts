@@ -9,7 +9,7 @@ import {
   sendAdminReturnNotification,
   SUPER_ADMIN_EMAILS
 } from '../../services/emailService';
-import { ADMIN_DIRECTORY, getAdminById } from './adminDirectory';
+import { ADMIN_DIRECTORY, getAdminById, getAdminByEmail } from './adminDirectory';
 import { generateOtp, storeOtp, verifyOtp as verifyOtpCode, consumeOtp } from './otpService';
 import { cacheGetJSON, cacheSetJSON, cacheInvalidatePattern } from '../../config/redis';
 import { invalidateItemsCache } from '../inventory/inventory.controller';
@@ -57,6 +57,7 @@ export const finalizeBorrow = async (
   payload: {
     userId: string;
     userName: string;
+    roll_number?: string | null;
     itemId: string;
     quantity: number;
     purpose: string;
@@ -64,7 +65,7 @@ export const finalizeBorrow = async (
     dueDate?: string;
   }
 ) => {
-  const { userId, userName, itemId, quantity, purpose, durationDays, dueDate: customDueDate } = payload;
+  const { userId, userName, roll_number, itemId, quantity, purpose, durationDays, dueDate: customDueDate } = payload;
 
   // 1. Fetch item details (name, category, etc.)
   const { data: initialItem, error: itemErr } = await dbRead
@@ -109,9 +110,16 @@ export const finalizeBorrow = async (
       };
     }
 
-    // Queue math auto-sync: if available stock is less than requested quantity,
-    // auto-adjust actual granted quantity to the remaining available stock
-    const actualQuantity = Math.min(quantity, currAvail);
+    if (quantity > currAvail) {
+      return {
+        error: {
+          status: 400,
+          message: `Requested quantity (${quantity}) exceeds available stock (${currAvail}) for "${freshItem.name}".`
+        }
+      };
+    }
+
+    const actualQuantity = quantity;
     const calculatedRemaining = currAvail - actualQuantity;
     const { data: updatedRows, error: updateErr } = await dbWrite
       .from('inventory')
@@ -170,6 +178,7 @@ export const finalizeBorrow = async (
       {
         user_id: safeUserId,
         borrower_name: userName,
+        roll_number: roll_number || null,
         inventory_id: itemId,
         quantity: Math.max(1, grantedQuantity),
         purpose,
@@ -212,7 +221,7 @@ export const getAdmins = async (req: Request, res: Response) => {
 export const borrowItem = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
-    const userEmail = req.body.borrower_email || req.user?.email || 'vardaansaxena096@gmail.com';
+    const userEmail = req.body.borrower_email || req.user?.email || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com';
     const userName = req.body.borrower_name || req.user?.name || 'Borrower';
     const userRoll = req.body.roll_number || req.user?.roll_number || null;
     const inventory_id = req.body.inventory_id || req.body.itemId || req.body.item_id;
@@ -235,6 +244,7 @@ export const borrowItem = async (req: AuthRequest, res: Response) => {
     const result = await finalizeBorrow({
       userId: userId || '',
       userName,
+      roll_number: userRoll,
       itemId: inventory_id,
       quantity: qty,
       purpose,
@@ -720,9 +730,9 @@ export const getBorrowLedger = async (req: AuthRequest, res: Response) => {
         }
       }
 
-      // If still missing or generic, attribute to verified system administrator Vardaan Saxena
+      // If still missing or generic, attribute to verified lab administrator
       if (!adminApprover || adminApprover === 'ADMIN' || adminApprover === 'Admin Team' || adminApprover === 'Admin') {
-        adminApprover = 'Vardaan Saxena';
+        adminApprover = process.env.DEFAULT_ADMIN_NAME || 'Lab Administrator';
       }
 
       return {
@@ -948,9 +958,8 @@ export const getHardwareRequestsHandler = async (req: AuthRequest, res: Response
 export const approveHardwareRequestHandler = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { getAdminByEmail } = await import('./adminDirectory');
-    const adminName = req.body?.adminName || req.body?.reviewedBy || (req.user?.name && req.user.name !== 'User' && req.user.name !== 'ADMIN' ? req.user.name : null) || (req.user?.email ? getAdminByEmail(req.user.email)?.name : null) || 'Vardaan Saxena';
-    const adminEmail = req.user?.email || 'cicrinventory@gmail.com';
+    const adminName = req.body?.adminName || req.body?.reviewedBy || (req.user?.name && req.user.name !== 'User' && req.user.name !== 'ADMIN' ? req.user.name : null) || (req.user?.email ? getAdminByEmail(req.user.email)?.name : null) || process.env.DEFAULT_ADMIN_NAME || 'Lab Administrator';
+    const adminEmail = req.user?.email || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com';
 
     const { approveHardwareRequest } = await import('./hardwareRequestService');
     const result = await approveHardwareRequest(id, adminName, adminEmail, req.body);
@@ -982,9 +991,8 @@ export const rejectHardwareRequestHandler = async (req: AuthRequest, res: Respon
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    const { getAdminByEmail } = await import('./adminDirectory');
-    const adminName = req.body?.adminName || req.body?.reviewedBy || (req.user?.name && req.user.name !== 'User' && req.user.name !== 'ADMIN' ? req.user.name : null) || (req.user?.email ? getAdminByEmail(req.user.email)?.name : null) || 'Vardaan Saxena';
-    const adminEmail = req.user?.email || 'cicrinventory@gmail.com';
+    const adminName = req.body?.adminName || req.body?.reviewedBy || (req.user?.name && req.user.name !== 'User' && req.user.name !== 'ADMIN' ? req.user.name : null) || (req.user?.email ? getAdminByEmail(req.user.email)?.name : null) || process.env.DEFAULT_ADMIN_NAME || 'Lab Administrator';
+    const adminEmail = req.user?.email || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com';
 
     const { rejectHardwareRequest } = await import('./hardwareRequestService');
     const result = await rejectHardwareRequest(id, adminName, adminEmail, reason, req.body);

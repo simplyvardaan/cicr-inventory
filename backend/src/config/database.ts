@@ -385,6 +385,10 @@ class QueryBuilder {
       return { data: null, count: result.count ?? 0, error: null };
     }
 
+    if (singleResult && Array.isArray(result.data)) {
+      return { data: result.data[0] || null, error: null, count: result.count };
+    }
+
     return { data: result.data, error: null, count: result.count };
   }
 

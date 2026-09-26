@@ -1,3 +1,5 @@
+import { MASTER_ADMIN_EMAIL } from '../auth/userApprovalService';
+
 export interface AdminDirectoryEntry {
   id: string;
   name: string;
@@ -5,9 +7,9 @@ export interface AdminDirectoryEntry {
 }
 
 export const ADMIN_DIRECTORY: AdminDirectoryEntry[] = [
-  { id: 'cicr-admin', name: 'CICR Inventory Admin', email: 'cicrinventory@gmail.com' },
-  { id: 'master-vardaan', name: 'Vardaan Saxena', email: 'vardaansaxena096@gmail.com' },
-  { id: 'admin-vardaan-jiit', name: 'Vardaan Saxena', email: '992501030399@mail.jiit.ac.in' },
+  { id: 'cicr-admin', name: 'CICR Inventory Admin', email: process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com' },
+  { id: 'master-vardaan', name: process.env.DEFAULT_ADMIN_NAME || 'Vardaan Saxena', email: MASTER_ADMIN_EMAIL },
+  { id: 'admin-vardaan-jiit', name: process.env.DEFAULT_ADMIN_NAME || 'Vardaan Saxena', email: '992501030399@mail.jiit.ac.in' },
   { id: 'admin-gunjan', name: 'Gunjan Pal', email: '992401210050@mail.jiit.ac.in' },
   { id: 'admin-dhruvi', name: 'Dhruvi Gupta', email: '992401030123@mail.jiit.ac.in' },
   { id: 'admin-aryan', name: 'Aryan Varshney', email: '992401030154@mail.jiit.ac.in' }

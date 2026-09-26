@@ -5267,6 +5267,83 @@ body.theme-light input[type="date"],
     transform: translateY(-1px);
 }
 
+#detail-modal .modal-footer .btn-modal-direct-issue {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 16px;
+    font-size: 12.5px;
+    font-weight: 700;
+    border-radius: 10px;
+    white-space: nowrap;
+    background: linear-gradient(135deg, rgba(189, 0, 255, 0.15), rgba(0, 240, 255, 0.15));
+    border: 1px solid rgba(189, 0, 255, 0.4);
+    color: #e9d5ff;
+    box-shadow: 0 0 14px rgba(189, 0, 255, 0.15);
+    transition: all 0.2s ease;
+}
+
+#detail-modal .modal-footer .btn-modal-direct-issue:hover {
+    background: linear-gradient(135deg, rgba(189, 0, 255, 0.28), rgba(0, 240, 255, 0.28));
+    border-color: #bd00ff;
+    color: #ffffff;
+    box-shadow: 0 0 20px rgba(189, 0, 255, 0.35);
+    transform: translateY(-1px);
+}
+
+.card-admin-loan-pill {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(189, 0, 255, 0.08);
+    border: 1px solid rgba(189, 0, 255, 0.25);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #d8b4fe;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.card-admin-loan-pill:hover {
+    background: rgba(189, 0, 255, 0.18);
+    border-color: rgba(189, 0, 255, 0.5);
+    transform: translateY(-1px);
+}
+
+html[data-theme="light"] #detail-modal .modal-footer .btn-modal-direct-issue,
+body.theme-light #detail-modal .modal-footer .btn-modal-direct-issue {
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.12), rgba(6, 182, 212, 0.12));
+    border: 1px solid rgba(147, 51, 234, 0.45);
+    color: #6b21a8;
+    box-shadow: 0 0 10px rgba(147, 51, 234, 0.12);
+}
+
+html[data-theme="light"] #detail-modal .modal-footer .btn-modal-direct-issue:hover,
+body.theme-light #detail-modal .modal-footer .btn-modal-direct-issue:hover {
+    background: linear-gradient(135deg, rgba(147, 51, 234, 0.22), rgba(6, 182, 212, 0.22));
+    border-color: #7e22ce;
+    color: #4c1d95;
+    box-shadow: 0 0 16px rgba(147, 51, 234, 0.25);
+}
+
+html[data-theme="light"] .card-admin-loan-pill,
+body.theme-light .card-admin-loan-pill {
+    background: rgba(147, 51, 234, 0.08);
+    border: 1px solid rgba(147, 51, 234, 0.35);
+    color: #7e22ce;
+}
+
+html[data-theme="light"] .card-admin-loan-pill:hover,
+body.theme-light .card-admin-loan-pill:hover {
+    background: rgba(147, 51, 234, 0.18);
+    border-color: rgba(147, 51, 234, 0.6);
+    color: #581c87;
+}
+
 #detail-modal .modal-footer .btn-borrow {
     display: inline-flex;
     align-items: center;
@@ -20303,7 +20380,7 @@ body.theme-light #edit-profile-modal .modal-content::-webkit-scrollbar-thumb,
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 110px;
+    max-width: 100%;
 }
 .hw-roll-badge {
     font-family: 'Space Grotesk', monospace;
@@ -20314,6 +20391,7 @@ body.theme-light #edit-profile-modal .modal-content::-webkit-scrollbar-thumb,
     padding: 1px 4px;
     border-radius: 4px;
     color: var(--neon-cyan, #00f0ff);
+    width: fit-content;
 }
 .hw-borrower-email {
     font-size: 11px;

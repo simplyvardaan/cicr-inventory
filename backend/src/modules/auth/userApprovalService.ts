@@ -2,15 +2,59 @@ import fs from 'fs';
 import path from 'path';
 import { dbRead } from '../../config/database';
 
-export const MASTER_ADMIN_EMAIL = 'vardaansaxena096@gmail.com';
-export const SUPER_ADMIN_EMAILS = [
-  'vardaansaxena096@gmail.com',
-  'cicrinventory@gmail.com',
-  '992501030399@mail.jiit.ac.in',
-  '992401210050@mail.jiit.ac.in', // Gunjan Pal
-  '992401030123@mail.jiit.ac.in', // Dhruvi Gupta
-  '992401030154@mail.jiit.ac.in'  // Aryan Varshney
+export interface DesignatedAdminInfo {
+  email: string;
+  name: string;
+  username: string;
+  roll_number?: string;
+  batch?: string;
+}
+
+export const DEFAULT_DESIGNATED_ADMINS: DesignatedAdminInfo[] = [
+  {
+    email: 'vardaansaxena096@gmail.com',
+    name: 'Vardaan Saxena',
+    username: 'vardaan'
+  },
+  {
+    email: 'cicrinventory@gmail.com',
+    name: 'CICR Admin',
+    username: 'cicradmin'
+  },
+  {
+    email: '992501030399@mail.jiit.ac.in',
+    name: 'Vardaan Saxena',
+    username: 'srvkiller09',
+    roll_number: '992501030399'
+  },
+  {
+    email: '992401210050@mail.jiit.ac.in',
+    name: 'Gunjan Pal',
+    username: 'gunjanpal',
+    roll_number: '992401210050',
+    batch: 'Management Head'
+  },
+  {
+    email: '992401030123@mail.jiit.ac.in',
+    name: 'Dhruvi Gupta',
+    username: 'dhruvi',
+    roll_number: '992401030123',
+    batch: 'Management Head'
+  },
+  {
+    email: '992401030154@mail.jiit.ac.in',
+    name: 'Aryan Varshney',
+    username: 'aryanvarshney',
+    roll_number: '992401030154',
+    batch: 'COORDINATOR'
+  }
 ];
+
+export const MASTER_ADMIN_EMAIL = (process.env.MASTER_ADMIN_EMAIL || 'vardaansaxena096@gmail.com').trim().toLowerCase();
+
+export const SUPER_ADMIN_EMAILS: string[] = process.env.SUPER_ADMIN_EMAILS
+  ? process.env.SUPER_ADMIN_EMAILS.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+  : DEFAULT_DESIGNATED_ADMINS.map((a) => a.email.toLowerCase());
 
 export const isSuperAdminEmail = (email: string): boolean => {
   const norm = email.trim().toLowerCase();
@@ -91,13 +135,7 @@ export const isTestOrPurgedEmail = (email: string): boolean => {
   const normEmail = email.trim().toLowerCase();
   if (isSuperAdminEmail(normEmail)) return false;
   if (purgedEmails.has(normEmail)) return true;
-  if (normEmail.endsWith('.test') || normEmail.includes('cicr.test')) return true;
-  if (
-    normEmail.startsWith('admin1@') ||
-    normEmail.startsWith('9990001111') ||
-    normEmail.startsWith('9923103001') ||
-    normEmail.startsWith('992501714955')
-  ) {
+  if (process.env.NODE_ENV !== 'test' && (normEmail.endsWith('.test') || normEmail.includes('cicr.test'))) {
     return true;
   }
   return false;
@@ -113,7 +151,7 @@ export const isManagedUser = (email: string): boolean => {
 export const isPurgedUser = (email: string): boolean => {
   const normEmail = email.trim().toLowerCase();
   if (isSuperAdminEmail(normEmail)) return false;
-  return isTestOrPurgedEmail(normEmail);
+  return purgedEmails.has(normEmail);
 };
 
 export const unpurgeEmail = (email: string) => {
@@ -133,15 +171,6 @@ export const getUserApproval = (email: string, initialRole: 'ADMIN' | 'MEMBER' =
     };
   }
 
-  if (normEmail === 'mahakkatahara.mk@gmail.com') {
-    const existing = approvalState[normEmail];
-    return {
-      status: existing?.status || 'APPROVED',
-      role: 'MEMBER',
-      approvedAt: existing?.approvedAt || new Date().toISOString(),
-      approvedBy: existing?.approvedBy || 'SYSTEM'
-    };
-  }
 
   const isDesignated = isDesignatedAdmin(normEmail);
   const isCollege = normEmail.endsWith('@mail.jiit.ac.in') || normEmail.endsWith('@jiit.ac.in');
@@ -175,13 +204,14 @@ export const setUserApproval = (
   const isDesignated = isDesignatedAdmin(normEmail);
 
   if (isSuperAdminEmail(normEmail)) {
+    const match = DEFAULT_DESIGNATED_ADMINS.find((a) => a.email.toLowerCase() === normEmail);
     return {
       status: 'APPROVED',
       role: 'ADMIN',
       approvedAt: new Date().toISOString(),
       approvedBy: 'SYSTEM',
-      username: normEmail === 'vardaansaxena096@gmail.com' ? 'vardaan' : 'cicradmin',
-      name: normEmail === 'vardaansaxena096@gmail.com' ? 'Vardaan' : 'CICR Admin'
+      username: match?.username || (normEmail === MASTER_ADMIN_EMAIL ? 'vardaan' : 'cicradmin'),
+      name: match?.name || (normEmail === MASTER_ADMIN_EMAIL ? 'Vardaan' : 'CICR Admin')
     };
   }
 
@@ -271,14 +301,17 @@ export const deleteUserApproval = (email: string): void => {
 
 export const getAllUserApprovals = (): Record<string, UserApprovalRecord> => {
   const base: Record<string, UserApprovalRecord> = {};
-  SUPER_ADMIN_EMAILS.forEach((adm) => {
-    base[adm.toLowerCase()] = {
+  DEFAULT_DESIGNATED_ADMINS.forEach((adm) => {
+    const existing = approvalState[adm.email.toLowerCase()];
+    base[adm.email.toLowerCase()] = {
       status: 'APPROVED',
       role: 'ADMIN',
-      approvedAt: '2026-09-08T00:00:00.000Z',
-      approvedBy: 'SYSTEM',
-      username: adm.toLowerCase() === 'vardaansaxena096@gmail.com' ? 'vardaan' : 'cicradmin',
-      name: adm.toLowerCase() === 'vardaansaxena096@gmail.com' ? 'Vardaan' : 'CICR Admin'
+      approvedAt: existing?.approvedAt || '2026-09-08T00:00:00.000Z',
+      approvedBy: existing?.approvedBy || 'SYSTEM',
+      username: existing?.username || adm.username,
+      name: existing?.name || adm.name,
+      roll_number: existing?.roll_number || adm.roll_number,
+      batch: existing?.batch || adm.batch
     };
   });
   const filtered: Record<string, UserApprovalRecord> = {};
@@ -296,16 +329,25 @@ export const getAllUserApprovals = (): Record<string, UserApprovalRecord> => {
 export const findUserApprovalByIdentifier = (identifier: string): { email: string; record: UserApprovalRecord } | null => {
   const norm = identifier.trim().toLowerCase();
   
-  if (norm === 'vardaan' || norm === 'vardaansaxena' || norm === 'vardaansaxena096@gmail.com') {
+  const designatedMatch = DEFAULT_DESIGNATED_ADMINS.find(
+    (a) =>
+      a.email.toLowerCase() === norm ||
+      a.username.toLowerCase() === norm ||
+      a.name.toLowerCase() === norm ||
+      (a.roll_number && a.roll_number.toLowerCase() === norm)
+  );
+  if (designatedMatch) {
+    const existing = approvalState[designatedMatch.email.toLowerCase()];
     return {
-      email: 'vardaansaxena096@gmail.com',
-      record: { status: 'APPROVED', role: 'ADMIN', username: 'vardaan', name: 'Vardaan' }
-    };
-  }
-  if (norm === 'cicradmin' || norm === 'cicrinventory' || norm === 'cicr admin' || norm === 'cicrinventory@gmail.com') {
-    return {
-      email: 'cicrinventory@gmail.com',
-      record: { status: 'APPROVED', role: 'ADMIN', username: 'cicradmin', name: 'CICR Admin' }
+      email: designatedMatch.email,
+      record: {
+        status: 'APPROVED',
+        role: 'ADMIN',
+        username: existing?.username || designatedMatch.username,
+        name: existing?.name || designatedMatch.name,
+        roll_number: existing?.roll_number || designatedMatch.roll_number,
+        batch: existing?.batch || designatedMatch.batch
+      }
     };
   }
 

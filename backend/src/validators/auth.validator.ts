@@ -6,18 +6,21 @@ import { z } from 'zod';
 
 // ---------------------------------------------------------------- auth schemas
 export const loginSchema = z.object({
-  identifier: z
-    .string()
-    .min(1, 'Email, username, or name is required')
-    .max(255, 'Identifier too long'),
-  email: z.string().optional(),
-  username: z.string().optional(),
-  name: z.string().optional(),
+  identifier: z.string().max(255, 'Identifier too long').optional(),
+  email: z.string().max(255, 'Email too long').optional(),
+  username: z.string().max(255, 'Username too long').optional(),
+  name: z.string().max(255, 'Name too long').optional(),
   password: z
     .string()
-    .min(6, 'Password must be at least 6 characters')
+    .min(1, 'Password is required')
     .max(128, 'Password too long'),
-});
+}).refine(
+  (data) => !!(data.identifier || data.email || data.username || data.name),
+  {
+    message: 'Email, username, or name is required',
+    path: ['identifier']
+  }
+);
 
 export const registerSchema = z.object({
   name: z
@@ -153,9 +156,11 @@ export function validate(schema: z.ZodSchema) {
         field: e.path.join('.'),
         message: e.message,
       }));
+      const isMissingRegisterRequired =
+        schema === registerSchema && (!req.body?.name || !req.body?.email || !req.body?.password);
       return res.status(400).json({
         status: 'error',
-        message: 'Validation failed',
+        message: isMissingRegisterRequired ? 'Name, email, and password required.' : (errors[0]?.message || 'Validation failed'),
         errors,
       });
     }

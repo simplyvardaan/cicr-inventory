@@ -156,7 +156,7 @@ export const createItem = async (req: AuthRequest, res: Response) => {
       description: newItem.description || undefined,
       tags: newItem.tags,
       createdByAdminName: req.user?.name || 'Admin',
-      createdByAdminEmail: req.user?.email || 'cicrinventory@gmail.com',
+      createdByAdminEmail: req.user?.email || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com',
       createdAt: newItem.created_at || new Date().toISOString()
     }).catch((e) => console.error('[EMAIL ERROR] Failed to send item creation email:', e));
 
@@ -279,7 +279,7 @@ export const deleteItem = async (req: AuthRequest, res: Response) => {
     await invalidateItemsCache(id);
 
     const adminName = req.user?.name || req.user?.email || 'Admin';
-    const adminEmail = req.user?.email || 'cicrinventory@gmail.com';
+    const adminEmail = req.user?.email || process.env.DEFAULT_SENDER_EMAIL || process.env.SMTP_USER || 'cicrinventory@gmail.com';
 
     // Log to Audit
     await logAuditEvent({
