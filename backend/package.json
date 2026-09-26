@@ -36,7 +36,7 @@
     "express-session": "^1.19.0",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "nodemailer": "^9.0.5",
     "pg": "^8.23.0",
     "typescript": "^5.3.3",
