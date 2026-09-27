@@ -13,7 +13,7 @@
     "test": "node --test --test-concurrency=1 \"test/*.test.cjs\""
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.0",
+    "@supabase/supabase-js": "^2.117.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.19",
